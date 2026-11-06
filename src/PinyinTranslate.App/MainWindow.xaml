@@ -107,9 +107,9 @@
                                 <Border Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeSelection}"><Path Data="{DynamicResource IconSelection}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
                                     <TextBlock Text="划词翻译" FontSize="14" FontWeight="SemiBold"/>
-                                    <TextBlock Text="选择文字后自动双向翻译" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Text="自动双向翻译 · 读不到时选中后 Ctrl+C" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
-                                <CheckBox x:Name="SelectionCheck" Grid.Column="2" Style="{StaticResource ModeSwitch}" VerticalAlignment="Center" AutomationProperties.Name="开启划词双向翻译" ToolTip="开启后，在本行选择的两种语言之间自动互译" Checked="SelectionChanged" Unchecked="SelectionChanged"/>
+                                <CheckBox x:Name="SelectionCheck" Grid.Column="2" Style="{StaticResource ModeSwitch}" VerticalAlignment="Center" AutomationProperties.Name="开启划词双向翻译" ToolTip="开启后在本行两种语言之间互译；选中后手动 Ctrl+C 也可翻译本次新复制的文字，终端也可用 Ctrl+Shift+C。关闭后两种方式都停止。" Checked="SelectionChanged" Unchecked="SelectionChanged"/>
                             </Grid>
                             <WrapPanel Margin="46,10,0,0">
                                 <StackPanel Width="126" Margin="0,0,10,0">

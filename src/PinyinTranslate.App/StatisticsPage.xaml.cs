@@ -128,7 +128,11 @@ public partial class StatisticsPage : UserControl, IDisposable
             var snapshot = await Task.Run(_services.GetStatistics);
             if (_disposed) return;
             ShowSnapshot(snapshot);
-            if (_summary != null) Clipboard.SetText(_summary);
+            if (_summary != null)
+            {
+                Clipboard.SetText(_summary);
+                PinyinTranslate.Input.OwnClipboardWrites.NoteNativeCopy();
+            }
             StatisticsStatus.Text = "统计摘要已复制。" + (snapshot.Warning ?? "");
             StatisticsStatus.SetResourceReference(TextBlock.ForegroundProperty, string.IsNullOrWhiteSpace(snapshot.Warning) ? "Muted" : "ErrorInk");
         }

@@ -12,7 +12,7 @@ Windows 11 x64 中文桌面翻译工具，使用系统微软拼音。开启拼�
 
 ## 启动
 
-从 [GitHub Releases](https://github.com/ihhhhhooo/trans/releases/latest) 下载 `PinyinTranslate.Desktop-win-x64-Setup.exe`，双击即可安装并启动，无须手动解压。以后使用桌面或开始菜单的 PinyinTranslate 快捷方式打开。默认安装目录为当前账户的 `%LOCALAPPDATA%\PinyinTranslate.Desktop`。
+从 [GitHub Releases](https://github.com/ihhhhhooo/PinyinTranslate/releases/latest) 下载 `PinyinTranslate.Desktop-win-x64-Setup.exe`，双击即可安装并启动，无须手动解压。以后使用桌面或开始菜单的 PinyinTranslate 快捷方式打开。默认安装目录为当前账户的 `%LOCALAPPDATA%\PinyinTranslate.Desktop`。
 
 也可下载 `Portable.zip`，解压到可写目录，运行 ZIP 根目录的 `PinyinTranslate.exe`。便携版请保留整个目录，包括 `current`、`Update.exe` 和 `.portable` 等配套文件。两种发行包均为 win-x64 .NET 10 自包含，不需要另外安装 .NET。首次运行，划词和拼音模式均关闭。请在左侧“设置”中填入自己的 DeepSeek API Key 并保存；密钥通过 Windows DPAPI CurrentUser 保存在当前用户的 `%LOCALAPPDATA%\PinyinTranslate\secrets`，不在发行包中。重新打开设置时，已保存的密钥会以掩码形式显示；修改后需再次点击“保存密钥”。此软件独立于 Codex 配置。
 
@@ -67,6 +67,8 @@ Flash 单价为人民币 / 百万 Token：空闲时输入缓存命中 0.02 元�
 
 ## 限制与排查
 
+- 终端和 IDEA 兼容说明见 [编辑器兼容报告](../reports/editor-compatibility.md)。拼音自动复制只需要可核对的焦点和微软拼音候选；IDEA 划词另增加 Java 选区读取，可能需要先开启“支持屏幕阅读器”和 Java Access Bridge 并重启 IDE。程序不会自动修改这些设置。
+- 微信等界面读不到选区时，保持划词模式开启，重新选择文字后按 **Ctrl+C**；终端也支持 **Ctrl+Shift+C**。本次新复制的文本会使用同一语言对翻译，并显示“复制兼容翻译”结果。只有选择动作后的手动复制才会读取文本，不后台翻译任意剪贴板变化，不自动发送复制按键；关闭划词、截图暂停和更新准备时一并停止。不可复制或无法核对来源的内容仍需截图翻译。
 - 输入翻译需要目标控件公开可辨认的非密码焦点，以及当前微软拼音首候选。复制译文不要求完整正文、写入接口或可恢复的组合基线；候选无法读取时仍无法翻译，不保证所有软件兼容。
 - 候选服务启动或运行失败时，状态提示区区分权限不足、配套文件缺失、启动超时、UIA 初始化失败、连接中断等原因，并显示阶段与错误代码；对当前控件按 1、2、4、8、15 秒间隔重试。只要具备候选预览能力就可启动服务，写入能力单独判断。整个包的主程序与候选服务必须来自同一个版本。
 - 自动复制使用独立的 Unicode 文本写入路径，不读取或备份原有格式，也不走旧版粘贴/Unicode 按键回退。复制失败不会伪报“已复制”，不会自动清理拼音。请先等成功提示再按 Esc；若提前 Esc，本轮请求会取消，剪贴板可能仍是上一段内容。

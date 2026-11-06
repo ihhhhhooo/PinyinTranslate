@@ -70,6 +70,14 @@ public sealed class EditableContextAdapter : IDisposable
     public Task<EditableContextSnapshot?> ReadFocusedAsync(CancellationToken cancellationToken = default) =>
         Enqueue(automation => Read(automation)?.Snapshot, cancellationToken);
 
+    public Task<EditableContextSnapshot?> ReadPreviewFocusAsync(CancellationToken cancellationToken = default) =>
+        Enqueue(automation =>
+        {
+            automation.ConnectionTimeout = TimeSpan.FromMilliseconds(250);
+            automation.TransactionTimeout = TimeSpan.FromMilliseconds(250);
+            return PreviewFocusReader.Read(new UiaPreviewFocusEnvironment(automation));
+        }, cancellationToken);
+
     public static bool TryCreateAnchor(EditableContextSnapshot snapshot, out BaselineAnchor? anchor)
     {
         anchor = null;

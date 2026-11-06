@@ -2,6 +2,12 @@ namespace PinyinTranslate.Selection;
 
 public enum SelectionRangeEndpoint { Start, End }
 
+public readonly record struct SelectionBounds(double X, double Y, double Width, double Height)
+{
+    public bool IsValid => double.IsFinite(X) && double.IsFinite(Y) && double.IsFinite(Width) && double.IsFinite(Height) && Width > 0 && Height > 0;
+    public bool Contains(int x, int y) => IsValid && x >= X && y >= Y && x < X + Width && y < Y + Height;
+}
+
 /// <summary>The reader uses only true TextPattern ranges, never Name or Value text.</summary>
 public interface ISelectionTextRange
 {
@@ -17,6 +23,7 @@ public interface ISelectionElement
     nint NativeWindowHandle { get; }
     bool IsPassword { get; }
     bool IsOffscreen => false;
+    SelectionBounds? Bounds => null;
     ISelectionElement? Parent { get; }
     ISelectionElement? FirstChild { get; }
     ISelectionElement? NextSibling { get; }

@@ -25,4 +25,5 @@ public interface ITranslationClipboardCopyApi
     bool Empty();
     /// <summary>On success the system owns memory; destroying the owner must not free the published data.</summary>
     bool SetUnicodeText(nint memory);
+    uint GetSequenceNumber() => 0;
 }

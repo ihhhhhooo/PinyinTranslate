@@ -78,6 +78,13 @@ public sealed class UiaSelectionReader : ISelectionReader
             // An explicitly targeted caret/cleared selection must not resurrect a
             // stale selection elsewhere in the same browser window.
             if (authoritative) { currentSource = null; return null; }
+            // Terminal/embedded-editor hit testing may return an unsupported
+            // container, with its TextPattern exposed only on a child. Search
+            // that container, never an unrelated focused control. Pointer
+            // evidence additionally has to contain the actual gesture point.
+            var nested = ReadDescendants(primary, root, request, pointerHintAvailable, Allowed, seen, out bool uncertain);
+            if (nested is not null) return Publish(nested, eventSource, request);
+            if (uncertain) { currentSource = null; return null; }
         }
         // A pointer-selected area that exposes no readable range is unavailable,
         // rather than permission to translate an unrelated focused selection.
@@ -149,6 +156,54 @@ public sealed class UiaSelectionReader : ISelectionReader
             catch { node = Safe(() => node!.Parent); }
         }
         return null;
+    }
+
+    private Evidence? ReadDescendants(ISelectionElement source, nint root, SelectionReadRequest request,
+        bool pointerScoped, Func<bool> allowed, HashSet<string> seen, out bool uncertain)
+    {
+        uncertain = false;
+        if (!IsAllowed(source, root)) return null;
+        var pending = new Stack<(ISelectionElement Node, int Depth)>();
+        pending.Push((source, 0));
+        Evidence? found = null;
+        var walked = new HashSet<string>(StringComparer.Ordinal);
+        while (pending.Count > 0 && walked.Count < options.MaximumNodes && allowed())
+        {
+            var (node, depth) = pending.Pop();
+            try
+            {
+                if (!walked.Add(node.RuntimeId) || !IsAllowed(node, root)) continue;
+                var bounds = pointerScoped ? Safe(() => node.Bounds) : null;
+                if (bounds is { IsValid: false }) bounds = null;
+                if (pointerScoped && bounds.HasValue && !bounds.Value.Contains(request.PointerX!.Value, request.PointerY!.Value)) continue;
+                bool pointVerified = !pointerScoped || (bounds?.Contains(request.PointerX!.Value, request.PointerY!.Value) == true);
+                if (pointVerified && seen.Add(node.RuntimeId))
+                {
+                    var outcome = TryRead(node, root, allowed, out var evidence);
+                    if (outcome == Outcome.Selected)
+                    {
+                        if (found is not null && found.RuntimeId != evidence!.RuntimeId) { uncertain = true; return null; }
+                        found = evidence;
+                        continue; // This provider owns the selected range; nested proxies are not extra selections.
+                    }
+                    // Do not use an old selected descendant beneath an explicit
+                    // caret or a protected/unreadable selection provider.
+                    if (outcome is Outcome.Empty or Outcome.Rejected) continue;
+                }
+                var child = node.FirstChild;
+                if (depth >= options.MaximumDepth)
+                {
+                    if (child is not null) { uncertain = true; return null; }
+                    continue;
+                }
+                for (int count = 0; child is not null && count < options.MaximumChildren && allowed(); count++)
+                { pending.Push((child, depth + 1)); child = child.NextSibling; }
+                if (child is not null) { uncertain = true; return null; }
+            }
+            catch { /* A failing subtree is not evidence of a selected range. */ }
+        }
+        uncertain = !allowed() || pending.Count != 0;
+        return uncertain ? null : found;
     }
 
     private Outcome TryRead(ISelectionElement node, nint root, Func<bool> allowed, out Evidence? evidence)

@@ -334,8 +334,8 @@ public sealed class VelopackBackendTests
             {
                 new { name = "v1.0.1", prerelease = false, published_at = "2026-11-06T00:00:00Z",
                     assets = IncludeFeed ? new[] { new { name = "releases.win-x64.json",
-                        url = "https://api.github.com/repos/ihhhhhooo/trans/releases/assets/1",
-                        browser_download_url = "https://github.com/ihhhhhooo/trans/releases/download/v1.0.1/releases.win-x64.json" } } : [] }
+                        url = "https://api.github.com/repos/ihhhhhooo/PinyinTranslate/releases/assets/1",
+                        browser_download_url = "https://github.com/ihhhhhooo/PinyinTranslate/releases/download/v1.0.1/releases.win-x64.json" } } : [] }
             }));
         }
         public Task<byte[]> DownloadBytes(string url, IDictionary<string, string>? headers, double timeout)

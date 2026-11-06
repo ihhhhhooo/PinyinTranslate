@@ -12,7 +12,7 @@
                     <Path Data="{DynamicResource IconSelection}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="20" Height="20" Stretch="Uniform"/>
                 </Border>
                 <StackPanel Grid.Column="1" Margin="11,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="划词翻译" FontWeight="SemiBold" FontSize="16"/>
+                    <TextBlock x:Name="ResultHeading" Text="划词翻译" FontWeight="SemiBold" FontSize="16"/>
                     <TextBlock x:Name="CopyFeedback" Text="点击文字即可复制" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0"/>
                 </StackPanel>
                 <Path Grid.Column="2" Data="{DynamicResource HeroOrnament}" Stroke="{DynamicResource Accent}" StrokeThickness="1.3" Width="28" Height="28" Stretch="Uniform" Opacity="0.35" IsHitTestVisible="False" Margin="12,0,2,0"/>

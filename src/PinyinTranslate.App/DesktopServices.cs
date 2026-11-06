@@ -75,7 +75,7 @@ public sealed class DesktopServices : IAppServices
         Func<string, string, string, CancellationToken, Task<TextTranslation>>? selectionTranslator = null)
     {
         _dispatcher = Application.Current.Dispatcher;
-        _selection = selectionMonitor ?? new SelectionMonitor(selectionDiagnostic);
+        _selection = selectionMonitor ?? new SelectionMonitor(selectionDiagnostic, OwnClipboardWrites.Contains);
         _presentSelection = PresentSelectionAsync;
         _dismissSelection = QueueSelectionDismissal;
         var persistentDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PinyinTranslate");
@@ -194,7 +194,7 @@ public sealed class DesktopServices : IAppServices
             if (Interlocked.Read(ref _selectionToggleVersion) != toggleVersion) return null;
         }
         SelectionEnabled = enabled; _selection.SetEnabled(enabled && _captureSuspendCount == 0);
-        SetStatus(enabled ? $"划词双向翻译已开启：{TranslationLanguages.Get(Settings.SelectionLanguageA).DisplayName} ↔ {TranslationLanguages.Get(Settings.SelectionLanguageB).DisplayName}。" : "划词自动翻译已关闭。");
+        SetStatus(enabled ? $"划词双向翻译已开启：{TranslationLanguages.Get(Settings.SelectionLanguageA).DisplayName} ↔ {TranslationLanguages.Get(Settings.SelectionLanguageB).DisplayName}。读不到选区时，选中后按 Ctrl+C 兼容翻译。" : "划词自动翻译与复制兼容翻译均已关闭。");
         if (!enabled) CloseSelectionWindow();
         return null;
     }
@@ -452,7 +452,7 @@ public sealed class DesktopServices : IAppServices
         try
         {
             if (cts.IsCancellationRequested || !_selection.IsCurrent(snapshot.Version)) return;
-            SetSelectionStatus(snapshot, cts, "正在确认选中文字…", claim: true);
+            SetSelectionStatus(snapshot, cts, snapshot.IsCopiedText ? "正在确认本次复制的文字…" : "正在确认选中文字…", claim: true);
             if (!await _selection.ValidateAsync(snapshot).WaitAsync(validationTimeout, cts.Token).ConfigureAwait(false))
             {
                 SetSelectionStatus(snapshot, cts, "选区暂时无法确认，本轮已结束；请重新划选或使用截图翻译。", terminal: true);
@@ -487,7 +487,7 @@ public sealed class DesktopServices : IAppServices
                 Settings.SelectionLanguageA == languageA && Settings.SelectionLanguageB == languageB;
             if (!Current()) return;
             await _presentSelection(snapshot, translated, cts.Token, Current).ConfigureAwait(false);
-            if (Current()) SetSelectionStatus(snapshot, cts, $"划词翻译完成（译为{TranslationLanguages.Get(translated.TargetLanguage).DisplayName}）。点击结果可复制。", terminal: true);
+            if (Current()) SetSelectionStatus(snapshot, cts, $"{(snapshot.IsCopiedText ? "复制兼容" : "划词")}翻译完成（译为{TranslationLanguages.Get(translated.TargetLanguage).DisplayName}）。点击结果可复制。", terminal: true);
         }
         catch (OperationCanceledException)
         {
@@ -544,7 +544,7 @@ public sealed class DesktopServices : IAppServices
         {
             if (!current()) return;
             CloseSelectionWindow();
-            _resultWindow = new SelectionResultWindow(snapshot.Text, translated.Translation, RecordCopy, translated.TargetLanguage);
+            _resultWindow = new SelectionResultWindow(snapshot.Text, translated.Translation, RecordCopy, translated.TargetLanguage, snapshot.IsCopiedText);
             _resultVersion = snapshot.Version;
             _resultWindow.Show();
         }, DispatcherPriority.Normal, token);

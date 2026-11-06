@@ -2,7 +2,7 @@
 
 ## 使用
 
-发布源固定为公开仓库 `ihhhhhooo/trans` 的 GitHub Releases，客户端无需 GitHub 令牌，只检查稳定版的 `win-x64` 渠道。更新使用固定版本的 Velopack 1.2.161。
+发布源固定为公开仓库 `ihhhhhooo/PinyinTranslate` 的 GitHub Releases，客户端无需 GitHub 令牌，只检查稳定版的 `win-x64` 渠道。更新使用固定版本的 Velopack 1.2.161。1.0.6 随仓库改名更新正式地址和发布工作流；旧版仍使用 `ihhhhhooo/trans` 地址，依赖 GitHub 的仓库重定向升级到新版，包标识与数据目录保持不变。
 
 从 1.0.1 开始，Releases 同时提供 `PinyinTranslate.Desktop-win-x64-Setup.exe` 安装版和 `Portable.zip` 便携版。希望无须手动解压时，退出旧程序后双击 `Setup.exe`，安装完成会启动程序，日后可从桌面或开始菜单快捷方式打开。默认安装在当前账户的 `%LOCALAPPDATA%\PinyinTranslate.Desktop`，本机数据仍保存在 `%LOCALAPPDATA%\PinyinTranslate`，不需要重新填写已保存的密钥。
 

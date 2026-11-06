@@ -30,6 +30,8 @@ internal static class Program
             if (hello.Kind != "hello" || hello.SessionId != args[5] || hello.ParentProcessId != parentPid || parent.HasExited ||
                 hello.ParentStartTicks != parent.StartTime.ToUniversalTime().Ticks || hello.TargetProcessId <= 0 ||
                 hello.TargetProcessId == parentPid || hello.TargetProcessId == Environment.ProcessId ||
+                (hello.ForegroundScope is not null && (!hello.ForegroundScope.IsValid ||
+                    hello.ForegroundScope.ProcessId == parentPid || hello.ForegroundScope.ProcessId == Environment.ProcessId)) ||
                 (string.IsNullOrWhiteSpace(hello.AutomationId) && string.IsNullOrWhiteSpace(hello.FocusRuntimeId))) return 3;
             authenticated = true;
             stage = "target-query";
@@ -43,7 +45,8 @@ internal static class Program
                 return 3;
             }
             stage = "uia-create";
-            observer = new CandidateObserver(target, hello.AutomationId, string.IsNullOrEmpty(hello.FocusRuntimeId) ? null : hello.FocusRuntimeId);
+            observer = new CandidateObserver(target, hello.AutomationId, string.IsNullOrEmpty(hello.FocusRuntimeId) ? null : hello.FocusRuntimeId,
+                hello.ForegroundScope);
             session = new BridgeSession(observer, hello.SessionId, lifetime);
             stage = "uia-ready";
             bool ready = await observer.Ready.WaitAsync(TimeSpan.FromSeconds(4), startup.Token).ConfigureAwait(false);

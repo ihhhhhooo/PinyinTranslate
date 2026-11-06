@@ -10,7 +10,7 @@ namespace PinyinTranslate.Update;
 /// <summary>Public GitHub feed plus the official Velopack download/verification/update engine.</summary>
 public sealed class VelopackBackend : IUpdateBackend
 {
-    public const string RepositoryUrl = "https://github.com/ihhhhhooo/trans";
+    public const string RepositoryUrl = "https://github.com/ihhhhhooo/PinyinTranslate";
     public const string PackageId = "PinyinTranslate.Desktop";
     public const string Channel = "win-x64";
     private readonly object gate = new();

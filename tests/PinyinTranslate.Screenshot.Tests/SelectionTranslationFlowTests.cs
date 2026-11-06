@@ -11,11 +11,13 @@ namespace PinyinTranslate.Screenshot.Tests;
 // DesktopServices, a dispatcher, UIA, hooks, clipboard or any result window.
 public sealed class SelectionTranslationFlowTests
 {
-    [Fact]
-    public async Task A_read_only_document_selection_reaches_translation_and_presentation()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task A_read_only_document_selection_reaches_translation_and_presentation(bool copiedText)
     {
         using var fixture = new Fixture();
-        var source = Snapshot(1, "Document body selected by the user.");
+        var source = Snapshot(1, "Document body selected by the user.") with { IsCopiedText = copiedText };
         await fixture.Run(source);
         Assert.Equal(source.Text, Assert.Single(fixture.Translated));
         var shown = Assert.Single(fixture.Shown);
@@ -26,6 +28,17 @@ public sealed class SelectionTranslationFlowTests
         Assert.Null(fixture.Get("_client"));
         Assert.Null(fixture.Get("_resultWindow"));
         Assert.Contains("翻译完成", fixture.Services.Status);
+        if (copiedText) Assert.Contains("复制兼容", fixture.Services.Status);
+    }
+
+    [Fact]
+    public async Task Manual_copy_and_accessible_selection_share_the_same_translation_cache()
+    {
+        using var fixture = new Fixture();
+        await fixture.Run(Snapshot(1, "Same copied and selected text"));
+        await fixture.Run(Snapshot(2, "Same copied and selected text") with { IsCopiedText = true });
+        Assert.Single(fixture.Translated); Assert.Equal(2, fixture.Shown.Count);
+        Assert.True(fixture.Shown.Last().Source.IsCopiedText); Assert.Contains("复制兼容", fixture.Services.Status);
     }
 
     [Theory]

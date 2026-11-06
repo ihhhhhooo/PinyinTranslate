@@ -16,6 +16,10 @@ public readonly record struct SelectionActivity(SelectionActivityKind Kind, nint
 {
     public nint TargetRootWindow { get; init; }
     public bool HasCapturedEpoch { get; init; }
+    public bool IsInjected { get; init; }
+    public uint BeforeCopySequence { get; init; }
+    public bool HasCopySequence { get; init; }
+    public long OccurredAtMilliseconds { get; init; }
     public nint TargetWindow => Kind is SelectionActivityKind.PointerDown or SelectionActivityKind.PointerUp or SelectionActivityKind.PointerWheel
         ? (TargetRootWindow != 0 ? TargetRootWindow : WindowUnderPointer) : ForegroundWindow;
 }
@@ -77,7 +81,7 @@ public sealed class SelectionActivityClassifier
         if (foregroundWindow == 0 || foregroundProcessId <= 0 || foregroundProcessId == _ownProcessId) return null;
         return new(isDown ? SelectionActivityKind.KeyDown : SelectionActivityKind.KeyUp,
             foregroundWindow, 0, foregroundProcessId, VirtualKey: virtualKey, Modifiers: modifiers,
-            IsRepeat: repeat, CompletesSelectionGesture: completes);
+            IsRepeat: repeat, CompletesSelectionGesture: completes) { IsInjected = (flags & 0x10) != 0 };
     }
 
     public SelectionActivity? Pointer(SelectionActivityKind kind, nint foregroundWindow, nint windowUnderPointer,
@@ -315,7 +319,13 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
                         _ = GetWindowThreadProcessId(foreground, out uint pid);
                         var activity = classifier.Keyboard(data.VirtualKey, messageId is 0x0100 or 0x0104, data.ScanCode, data.Flags,
                             data.ExtraInfo, foreground, unchecked((int)pid));
-                        if (activity is { } value) Activity?.Invoke(value with { Epoch = epoch, HasCapturedEpoch = true });
+                        if (activity is { } value)
+                        {
+                            bool copy = CopySelectionIntentTracker.IsCopyShortcut(value) && !value.IsRepeat;
+                            uint sequence = copy ? GetClipboardSequenceNumber() : 0;
+                            Activity?.Invoke(value with { Epoch = epoch, HasCapturedEpoch = true, OccurredAtMilliseconds = Environment.TickCount64,
+                                HasCopySequence = copy && sequence != 0, BeforeCopySequence = sequence });
+                        }
                     }
                 }
             }
@@ -339,7 +349,8 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
                         int wheel = messageId is 0x020A or 0x020E ? unchecked((short)(data.MouseDataValue >> 16)) : 0;
                         var activity = classifier.Pointer(kind, GetForegroundWindow(), underPointer, unchecked((int)pid),
                             data.Point.X, data.Point.Y, button, wheel, data.ExtraInfo, GetAncestor(underPointer, 2));
-                        if (activity is { } value) Activity?.Invoke(value with { Epoch = epoch, HasCapturedEpoch = true });
+                        if (activity is { } value) Activity?.Invoke(value with { Epoch = epoch, HasCapturedEpoch = true,
+                            OccurredAtMilliseconds = Environment.TickCount64, IsInjected = (data.Flags & 1) != 0 });
                     }
                 }
             }
@@ -377,6 +388,7 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool UnhookWindowsHookEx(nint hook);
     [DllImport("user32.dll")] private static extern nint CallNextHookEx(nint hook, int code, nuint message, nint pointer);
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
     [DllImport("user32.dll")] private static extern nint WindowFromPoint(NativePoint point);
     [DllImport("user32.dll")] private static extern nint GetAncestor(nint window, uint flags);

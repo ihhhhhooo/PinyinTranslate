@@ -10,7 +10,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$repository = 'ihhhhhooo/trans'
+$repository = 'ihhhhhooo/PinyinTranslate'
 $repoUrl = 'https://github.com/' + $repository
 $packId = 'PinyinTranslate.Desktop'
 $channel = 'win-x64'
@@ -150,7 +150,8 @@ function Assert-ReleaseBundle([string] $directory, [string] $commit) {
     $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $directory $portableName))
     try {
         foreach ($name in @('PinyinTranslate.exe', 'Update.exe', '.portable', 'current/PinyinTranslate.App.exe', 'current/PinyinTranslate.App.dll',
-            'current/PinyinTranslate.ImeBridge.exe', 'current/PinyinTranslate.ImeBridge.dll', 'current/LICENSE', 'current/RELEASE-NOTES.md', 'current/reports/updates.md')) {
+            'current/PinyinTranslate.ImeBridge.exe', 'current/PinyinTranslate.ImeBridge.dll', 'current/LICENSE', 'current/RELEASE-NOTES.md',
+            'current/README.md', 'current/README.en.md', 'current/docs/media/demo-video-placeholder.en.svg', 'current/reports/updates.md')) {
             if ($null -eq $zip.GetEntry($name)) { throw "Incomplete portable ZIP: $name." }
         }
         foreach ($name in @('PinyinTranslate.App', 'PinyinTranslate.ImeBridge')) {

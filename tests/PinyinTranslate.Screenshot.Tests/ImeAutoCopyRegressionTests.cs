@@ -65,11 +65,21 @@ public sealed class ImeAutoCopyRegressionTests
         finally { notification.RemoveEventHandler(fixture.Runtime, subscriber); }
     }
 
-    [Fact]
-    public async Task Preview_only_editor_without_text_patterns_or_anchor_still_copies_the_translation()
+    [Theory]
+    [InlineData("Synthetic", "Edit", false)]
+    [InlineData("WinUI", "TermControl", false)]
+    [InlineData("Java", "SunAwtFrame", false)]
+    [InlineData("Synthetic", "OpaqueHostedEditor", true)]
+    public async Task Preview_only_editor_without_text_patterns_or_anchor_still_copies_the_translation(string framework, string className, bool separateHost)
     {
         var observer = new Observer();
         using var fixture = Fixture(observer);
+        fixture.SetContext(EditableContextCapabilities.Evaluate(fixture.Context! with
+        {
+            FrameworkId = framework, ClassName = className,
+            ForegroundProcessId = separateHost ? Environment.ProcessId + 1 : Environment.ProcessId,
+            HasVerifiedForegroundAncestry = separateHost
+        }));
         string? clipboard = null;
         int legacyWrites = 0;
         fixture.CopyAsync = (text, current, token) =>

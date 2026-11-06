@@ -191,7 +191,7 @@ public partial class AppearancePage : UserControl, IDisposable
     private void OpenReleasesClicked(object sender, RoutedEventArgs e)
     {
         try { Process.Start(new ProcessStartInfo(VelopackBackend.RepositoryUrl + "/releases/latest") { UseShellExecute = true }); }
-        catch (Exception) { UpdateStatusText.Text = "无法打开浏览器，请手动打开 github.com/ihhhhhooo/trans/releases。"; }
+        catch (Exception) { UpdateStatusText.Text = "无法打开浏览器，请手动打开 github.com/ihhhhhooo/PinyinTranslate/releases。"; }
     }
 
     public void Dispose()

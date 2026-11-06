@@ -9,6 +9,29 @@ namespace PinyinTranslate.Core.Tests;
 public sealed class CandidateBridgeProtocolTests
 {
     [Fact]
+    public async Task Separate_foreground_host_round_trips_and_matches_only_the_pinned_window_and_process()
+    {
+        var scope = new CandidateForegroundScope(0x12345678, 43);
+        var hello = new CandidateBridgeMessage { Kind = "hello", TargetProcessId = 42, ForegroundScope = scope };
+        await using var stream = new MemoryStream();
+        await CandidateBridgeProtocol.WriteAsync(stream, hello, CancellationToken.None); stream.Position = 0;
+        var actual = await CandidateBridgeProtocol.ReadAsync(stream, CancellationToken.None);
+        Assert.Equal(scope, actual.ForegroundScope); Assert.Equal(42, actual.TargetProcessId);
+        Assert.True(scope.Allows((nint)0x12345678, 43));
+        Assert.False(scope.Allows((nint)0x12345679, 43)); Assert.False(scope.Allows((nint)0x12345678, 44));
+        Assert.False((scope with { Window = 0 }).IsValid); Assert.False((scope with { ProcessId = 0 }).IsValid);
+    }
+
+    [Fact]
+    public async Task Client_accepts_an_editor_with_a_separate_pinned_host_but_rejects_another_window()
+    {
+        var valid = new LocalClientFixture(); valid.SetForegroundScope(new(0x1234, 43));
+        await valid.ReceiveAsync(Observation(10)); Assert.True(valid.Client.IsCurrent(101));
+        var rejected = new LocalClientFixture(); rejected.SetForegroundScope(new(0x5678, 43));
+        await rejected.ReceiveAsync(Observation(10), invalid: true);
+    }
+
+    [Fact]
     public async Task FramingRoundTripsWindowAsInt64AndKeepsTheInputFence()
     {
         var expected = Observation(inputSequence: 11);
@@ -150,14 +173,16 @@ public sealed class CandidateBridgeProtocolTests
             Set("_sourceFloor", long.MinValue); Set("_lastPublishedSource", long.MinValue);
             Set("_enabled", true); Set("_running", true); Set("_hasEvidence", true);
         }
-        public async Task ReceiveAsync(CandidateBridgeMessage message)
+        public void SetForegroundScope(CandidateForegroundScope scope) => Set("_foregroundScope", scope);
+        public async Task ReceiveAsync(CandidateBridgeMessage message, bool invalid = false)
         {
             await using var stream = new MemoryStream();
             await CandidateBridgeProtocol.WriteAsync(stream, message, CancellationToken.None);
             stream.Position = 0;
             var read = (Task)typeof(CandidateObserverClient).GetMethod("ReadEventsAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .Invoke(Client, [stream, CancellationToken.None])!;
-            await Assert.ThrowsAsync<EndOfStreamException>(() => read);
+            if (invalid) await Assert.ThrowsAsync<InvalidDataException>(() => read);
+            else await Assert.ThrowsAsync<EndOfStreamException>(() => read);
         }
         private static FieldInfo Field(string name) => typeof(CandidateObserverClient).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!;
         private void Set(string field, object value) => Field(field).SetValue(Client, value);

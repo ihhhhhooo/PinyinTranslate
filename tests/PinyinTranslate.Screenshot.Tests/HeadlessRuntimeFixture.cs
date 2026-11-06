@@ -48,12 +48,16 @@ internal sealed class HeadlessRuntimeFixture : IDisposable
         Set("_diagnosticGate", new object());
         Set("_pollCancellation", _lifetime);
         // Keep testProcessId null, so runtime diagnostics cannot write local logs.
-        Set("_observerFactory", new Func<Process, string, string, ICandidateObserver>((process, id, runtimeId) =>
+        ICandidateObserver CreateObserver(Process process, string id, string runtimeId)
         {
             var observer = observerFactory?.Invoke(process, id, runtimeId) ?? new InertObserver();
             lock (_resourcesGate) _resources.Add((process, observer));
             return observer;
-        }));
+        }
+        object factory = RuntimeType.GetField("_observerFactory", InstanceFields)!.FieldType == typeof(Func<Process, string, string, ICandidateObserver>)
+            ? new Func<Process, string, string, ICandidateObserver>(CreateObserver)
+            : new Func<Process, EditableContextSnapshot, ICandidateObserver>((process, context) => CreateObserver(process, context.AutomationId, context.FocusRuntimeId));
+        Set("_observerFactory", factory);
         Set("_readContextAsync", new Func<CancellationToken, Task<EditableContextSnapshot?>>(token => ReadContextAsync(token)));
         Set("_foregroundWindow", new Func<nint>(() => ForegroundWindow));
         Set("_replaceAsync", new Func<EditableContextSnapshot, BaselineAnchor?, string, CancellationToken, Func<bool>, Func<bool>?, Task<EditableReplaceResult>>(

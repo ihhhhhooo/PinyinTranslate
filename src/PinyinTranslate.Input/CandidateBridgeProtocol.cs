@@ -17,6 +17,13 @@ public sealed record CandidateBridgeObservation(long SourceVersion, long Foregro
         FocusProcessId, FocusRuntimeId, Candidate, Array.AsReadOnly(VisiblePage.ToArray()), Bounds);
 }
 
+/// <summary>Separate the foreground host from a UIA editor hosted in another process.</summary>
+public sealed record CandidateForegroundScope(long Window, int ProcessId)
+{
+    public bool IsValid => Window != 0 && ProcessId > 0;
+    public bool Allows(nint window, uint processId) => IsValid && Window == window.ToInt64() && ProcessId == processId;
+}
+
 public sealed record CandidateBridgeMessage
 {
     public int ProtocolVersion { get; init; } = CandidateBridgeProtocol.CurrentVersion;
@@ -30,6 +37,7 @@ public sealed record CandidateBridgeMessage
     public long ParentStartTicks { get; init; }
     public int TargetProcessId { get; init; }
     public long TargetStartTicks { get; init; }
+    public CandidateForegroundScope? ForegroundScope { get; init; }
     public string AutomationId { get; init; } = "";
     public string FocusRuntimeId { get; init; } = "";
     public bool Enabled { get; init; }
@@ -42,7 +50,7 @@ public sealed record CandidateBridgeMessage
 
 public static class CandidateBridgeProtocol
 {
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
     public const int MaximumFrameBytes = 65536;
 
     public static async Task WriteAsync(Stream stream, CandidateBridgeMessage message, CancellationToken cancellation)

@@ -10,6 +10,26 @@ namespace PinyinTranslate.Core.Tests;
 public sealed class TranslationClipboardWriterTests
 {
     [Fact]
+    public async Task An_own_copy_remains_identifiable_after_its_owner_window_has_been_destroyed()
+    {
+        const uint sequence = 0xF1A0ABCD;
+        var api = new FakeApi { Sequence = sequence };
+        using var writer = Writer(api);
+        Assert.True((await writer.CopyAsync("translated English", () => true, default)).Copied);
+        Assert.Equal(0, api.LiveOwners); Assert.True(OwnClipboardWrites.Contains(sequence));
+        Assert.False(OwnClipboardWrites.Contains(0));
+    }
+
+    [Fact]
+    public async Task Failed_writes_do_not_tag_an_unrelated_clipboard_sequence_as_ours()
+    {
+        const uint sequence = 0xF1A0ABCE;
+        var api = new FakeApi { Sequence = sequence, SetSucceeds = false };
+        using var writer = Writer(api);
+        Assert.False((await writer.CopyAsync("never published", () => true, default)).Copied);
+        Assert.False(OwnClipboardWrites.Contains(sequence));
+    }
+    [Fact]
     public void ConstructionAndUnusedDisposalHaveNoClipboardOrWindowSideEffects()
     {
         var api = new FakeApi();
@@ -335,6 +355,8 @@ public sealed class TranslationClipboardWriterTests
         public Action? OnEmpty;
         public byte[]? LastAllocated;
         public nint LastTransferredHandle;
+        public uint Sequence;
+        public uint GetSequenceNumber() => Sequence;
         public string ClipboardText => Encoding.Unicode.GetString(_clipboard).TrimEnd('\0');
         private void Call(string name) { Calls.Enqueue(name); Threads.Enqueue(Environment.CurrentManagedThreadId); }
         public nint CreateOwnerWindow() { Call("create"); CreateCalls++; LiveOwners++; return ++_nextOwner; }

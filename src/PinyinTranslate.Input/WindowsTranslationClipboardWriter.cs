@@ -166,6 +166,9 @@ public sealed class WindowsTranslationClipboardWriter : ITranslationClipboardWri
             stage = "set-unicode";
             if (!_api.SetUnicodeText(memory)) return new(false, true, "UnicodeSetFailed");
             memory = 0; // Ownership transferred; never free or restore published text.
+            // Record while we still hold the clipboard lock; querying after
+            // closing could accidentally tag somebody else's later copy.
+            try { OwnClipboardWrites.Record(_api.GetSequenceNumber()); } catch { }
             return new(true, true, "Copied");
         }
     }
@@ -207,6 +210,7 @@ public sealed class WindowsTranslationClipboardWriter : ITranslationClipboardWri
         public bool Close() => CloseClipboard();
         public bool Empty() => EmptyClipboard();
         public bool SetUnicodeText(nint memory) => SetClipboardData(13, memory) != 0;
+        public uint GetSequenceNumber() => GetClipboardSequenceNumber();
         public nint AllocateUnicodeData(ReadOnlyMemory<byte> nullTerminatedUtf16)
         {
             byte[] bytes = nullTerminatedUtf16.ToArray();
@@ -231,6 +235,7 @@ public sealed class WindowsTranslationClipboardWriter : ITranslationClipboardWri
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseClipboard();
     [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool EmptyClipboard();
     [DllImport("user32.dll", SetLastError = true)] private static extern nint SetClipboardData(uint format, nint memory);
+    [DllImport("user32.dll")] private static extern uint GetClipboardSequenceNumber();
     [DllImport("kernel32.dll", SetLastError = true)] private static extern nint GlobalAlloc(uint flags, nuint size);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern nint GlobalLock(nint memory);
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GlobalUnlock(nint memory);

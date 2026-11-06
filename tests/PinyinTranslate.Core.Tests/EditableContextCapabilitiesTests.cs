@@ -14,6 +14,15 @@ public sealed class EditableContextCapabilitiesTests
         HasSingleSelection = true, SelectionStartUtf16 = 7, SelectionEndUtf16 = 7
     };
 
+    [Fact]
+    public void Proven_cross_process_host_allows_preview_but_never_authorizes_a_writer()
+    {
+        var raw = Plain() with { ForegroundProcessId = 43, HasVerifiedForegroundAncestry = true };
+        var result = EditableContextCapabilities.Evaluate(raw);
+        Assert.True(result.CanPreview); Assert.False(result.CanReplace); Assert.Equal(EditableCommitMethod.None, result.CommitMethod);
+        Assert.False(EditableContextCapabilities.Evaluate(raw with { HasVerifiedForegroundAncestry = false }).CanPreview);
+    }
+
     [Theory]
     [InlineData("Chrome", "SyntheticInput")]
     [InlineData("Qt", "SyntheticEdit")]

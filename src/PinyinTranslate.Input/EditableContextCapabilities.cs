@@ -6,12 +6,13 @@ public static class EditableContextCapabilities
     public static EditableContextSnapshot Evaluate(EditableContextSnapshot snapshot,
         TextInputProfile? verifiedProfile = null, bool useLegacyWpfValuePattern = false)
     {
-        bool identity = snapshot.ForegroundWindow != 0 && snapshot.FocusProcessId > 0 &&
-            snapshot.ForegroundProcessId == snapshot.FocusProcessId && !string.IsNullOrWhiteSpace(snapshot.FocusRuntimeId);
+        bool sameProcess = snapshot.ForegroundProcessId == snapshot.FocusProcessId;
+        bool identity = snapshot.ForegroundWindow != 0 && snapshot.ForegroundProcessId > 0 && snapshot.FocusProcessId > 0 &&
+            (sameProcess || snapshot.HasVerifiedForegroundAncestry) && !string.IsNullOrWhiteSpace(snapshot.FocusRuntimeId);
         // Read-only is a writing boundary. A valid IME candidate can still be
         // previewed when the editor/provider cannot expose writable evidence.
         bool preview = identity && !snapshot.IsPassword;
-        bool complete = preview && snapshot.HasTextPattern && snapshot.HasCompleteText && snapshot.HasConsistentText &&
+        bool complete = preview && sameProcess && snapshot.HasTextPattern && snapshot.HasCompleteText && snapshot.HasConsistentText &&
             snapshot.IsReadOnlyKnown && !snapshot.IsReadOnly && TryGetInsertionCaret(snapshot, out _);
         bool wpf = complete && !snapshot.PreferGenericPaste && snapshot.FrameworkId == "WPF" && snapshot.ClassName == "TextBox" && snapshot.HasValuePattern;
         bool verified = complete && !snapshot.PreferGenericPaste && verifiedProfile is not null && verifiedProfile.Matches(snapshot.FrameworkId, snapshot.ClassName);

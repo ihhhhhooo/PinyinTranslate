@@ -16,6 +16,7 @@ public sealed class CandidateObserverClient : ICandidateObserver, ICandidateObse
     private readonly string _automationId, _runtimeId, _sessionId = Guid.NewGuid().ToString("N");
     private readonly int _targetPid;
     private readonly long _targetStartTicks;
+    private readonly CandidateForegroundScope? _foregroundScope;
     private readonly string? _bridgePath;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -38,13 +39,17 @@ public sealed class CandidateObserverClient : ICandidateObserver, ICandidateObse
     private CandidateBridgeObservation? _remoteCurrent;
     private sealed record PendingValidation(long Epoch, long InputSequence, long SourceVersion, TaskCompletionSource<bool> Completion);
 
-    public CandidateObserverClient(Process targetProcess, string allowedAutomationId, string? allowedFocusRuntimeId = null, string? bridgePath = null)
+    public CandidateObserverClient(Process targetProcess, string allowedAutomationId, string? allowedFocusRuntimeId = null, string? bridgePath = null,
+        CandidateForegroundScope? foregroundScope = null)
     {
         ArgumentNullException.ThrowIfNull(targetProcess);
         _targetPid = targetProcess.Id;
         if (_targetPid <= 0 || _targetPid == Environment.ProcessId) throw new ArgumentOutOfRangeException(nameof(targetProcess));
         if (string.IsNullOrWhiteSpace(allowedAutomationId) && string.IsNullOrWhiteSpace(allowedFocusRuntimeId))
             throw new ArgumentException("A focus runtime identity or AutomationId is required.");
+        if (foregroundScope is not null && (!foregroundScope.IsValid || foregroundScope.ProcessId == Environment.ProcessId))
+            throw new ArgumentException("A valid external foreground host is required.", nameof(foregroundScope));
+        _foregroundScope = foregroundScope;
         _target = Process.GetProcessById(_targetPid);
         try
         {
@@ -200,6 +205,7 @@ public sealed class CandidateObserverClient : ICandidateObserver, ICandidateObse
                 Kind = "hello", SessionId = _sessionId, ParentProcessId = Environment.ProcessId,
                 ParentStartTicks = parent.StartTime.ToUniversalTime().Ticks,
                 TargetProcessId = _targetPid, TargetStartTicks = _targetStartTicks,
+                ForegroundScope = _foregroundScope,
                 AutomationId = _automationId, FocusRuntimeId = _runtimeId
             }, startup.Token).ConfigureAwait(false);
             StartupStageChanged("ready-await");
@@ -334,6 +340,7 @@ public sealed class CandidateObserverClient : ICandidateObserver, ICandidateObse
 
     private bool IsValidObservation(CandidateBridgeObservation? value, long sourceVersion) => value is not null &&
         value.SourceVersion == sourceVersion && value.ForegroundWindow != 0 && value.FocusProcessId == _targetPid &&
+        (_foregroundScope is null || value.ForegroundWindow == _foregroundScope.Window) &&
         !string.IsNullOrWhiteSpace(value.FocusRuntimeId) && (_runtimeId.Length == 0 || value.FocusRuntimeId == _runtimeId) &&
         value.Candidate.Length is > 0 and <= 256 && value.VisiblePage is { Length: > 0 and <= 64 } &&
         value.VisiblePage.All(candidate => candidate is { Length: > 0 and <= 256 }) && value.VisiblePage[0] == value.Candidate &&

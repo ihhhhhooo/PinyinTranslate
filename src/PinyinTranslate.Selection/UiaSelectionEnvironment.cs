@@ -117,6 +117,10 @@ internal sealed class UiaSelectionEnvironment : ISelectionEnvironment
         public nint NativeWindowHandle => element.CurrentNativeWindowHandle;
         public bool IsPassword => element.CurrentIsPassword != 0;
         public bool IsOffscreen => element.CurrentIsOffscreen != 0;
+        public SelectionBounds? Bounds
+        {
+            get { var bounds = element.CurrentBoundingRectangle; return new(bounds.left, bounds.top, bounds.right - bounds.left, bounds.bottom - bounds.top); }
+        }
         public ISelectionElement? Parent => owner.Wrap(owner.automation!.NativeAutomation.RawViewWalker.GetParentElement(element));
         public ISelectionElement? FirstChild => owner.Wrap(owner.automation!.NativeAutomation.RawViewWalker.GetFirstChildElement(element));
         public ISelectionElement? NextSibling => owner.Wrap(owner.automation!.NativeAutomation.RawViewWalker.GetNextSiblingElement(element));

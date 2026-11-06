@@ -44,6 +44,7 @@ public partial class ScreenshotResultWindow : Window
         try
         {
             Clipboard.SetText(text);
+            PinyinTranslate.Input.OwnClipboardWrites.NoteNativeCopy();
             try { _onCopied?.Invoke(text, original); } catch (Exception) { }
             return true;
         }

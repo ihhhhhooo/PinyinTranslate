@@ -305,9 +305,104 @@ public sealed class UiaSelectionReaderTests
         Assert.False(reader.Validate(result));
     }
 
-    private static UiaSelectionReader Reader(Graph graph)
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Unsupported_terminal_container_can_find_its_child_text_provider(bool pointer)
     {
-        var reader = new UiaSelectionReader(graph);
+        var graph = new Graph();
+        var container = graph.Root.Add(new Node("terminal-container") { Bounds = new(0, 0, 400, 300) });
+        var text = container.Add(Node.Selected("terminal-text", "Selected terminal output"));
+        text.Bounds = new(0, 0, 400, 300);
+        graph.Focus = graph.Point = container;
+        using var reader = Reader(graph);
+        var result = reader.Read(pointer ? new(1, SelectionReadOrigin.Pointer, 20, 30, 100) : new(1, SelectionReadOrigin.Keyboard));
+        Assert.NotNull(result); Assert.Equal("Selected terminal output", result.Text); Assert.True(reader.Validate(result));
+    }
+
+    [Fact]
+    public void Pointer_container_search_does_not_pick_an_outside_or_unlocated_old_selection()
+    {
+        var graph = new Graph();
+        var container = graph.Root.Add(new Node("container") { Bounds = new(0, 0, 400, 300) });
+        container.Add(Node.Selected("old-without-bounds", "Old unknown selection"));
+        var outside = container.Add(Node.Selected("old-other-pane", "Old pane selection"));
+        outside.Bounds = new(300, 200, 100, 100);
+        var text = container.Add(Node.Selected("terminal-text", "Selected terminal output"));
+        text.Bounds = new(0, 0, 200, 100);
+        graph.Focus = graph.Point = container;
+        using var reader = Reader(graph);
+        Assert.Equal("Selected terminal output", reader.Read(new(1, SelectionReadOrigin.Pointer, 20, 30, 100))!.Text);
+    }
+
+    [Fact]
+    public void An_explicit_caret_does_not_search_for_an_old_child_selection()
+    {
+        var graph = new Graph();
+        var container = graph.Root.Add(new Node("caret") { Ranges = [new Range(4, 4, "")] });
+        var stale = container.Add(Node.Selected("old-child", "Old child selection"));
+        graph.Focus = graph.Point = container;
+        using var reader = Reader(graph);
+        Assert.Null(reader.Read(new(1, SelectionReadOrigin.Pointer, 20, 30, 100)));
+        Assert.Equal(0, stale.RangeReads);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Ambiguous_child_selections_cannot_fall_through_to_an_unrelated_selection(bool pointer)
+    {
+        var graph = new Graph();
+        var container = graph.Root.Add(new Node("terminal") { Bounds = new(0, 0, 400, 300) });
+        foreach (string id in new[] { "one", "two" })
+            container.Add(Node.Selected(id, "Same text")).Bounds = new(0, 0, 400, 300);
+        graph.Root.Add(Node.Selected("unrelated", "Old unrelated selection"));
+        graph.Focus = graph.Point = container;
+        using var reader = Reader(graph);
+        Assert.Null(reader.Read(pointer ? new(1, SelectionReadOrigin.Pointer, 20, 30, 100) : new(1, SelectionReadOrigin.Keyboard)));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Incomplete_container_discovery_cannot_publish_an_arbitrary_first_selection(bool childLimit)
+    {
+        var graph = new Graph();
+        var container = graph.Root.Add(new Node("terminal") { Bounds = new(0, 0, 400, 300) });
+        container.Add(Node.Selected("first", "First selection")).Bounds = new(0, 0, 400, 300);
+        var branch = container.Add(new Node("uninspected-branch") { Bounds = new(0, 0, 400, 300) });
+        branch.Add(Node.Selected("second", "Second selection")).Bounds = new(0, 0, 400, 300);
+        graph.Focus = graph.Point = container;
+        using var reader = Reader(graph, new() { MaximumChildren = childLimit ? 1 : 32, MaximumDepth = childLimit ? 8 : 1 });
+        Assert.Null(reader.Read(new(1, SelectionReadOrigin.Pointer, 20, 30, 100)));
+    }
+
+    [Fact]
+    public void Selected_child_text_provider_is_authoritative_over_its_own_nested_text_proxies()
+    {
+        var graph = new Graph();
+        var container = graph.Root.Add(new Node("terminal") { Bounds = new(0, 0, 400, 300) });
+        var text = container.Add(Node.Selected("text-provider", "Terminal selection")); text.Bounds = new(0, 0, 400, 300);
+        text.Add(Node.Selected("nested-text-proxy", "Terminal selection")).Bounds = new(0, 0, 400, 300);
+        graph.Focus = graph.Point = container;
+        using var reader = Reader(graph);
+        Assert.Equal("text-provider", reader.Read(new(1, SelectionReadOrigin.Pointer, 20, 30, 100))!.RuntimeId);
+    }
+
+    [Fact]
+    public void Missing_container_rectangle_does_not_hide_a_child_with_verified_pointer_bounds()
+    {
+        var graph = new Graph();
+        var container = graph.Root.Add(new Node("terminal") { Bounds = new(0, 0, 0, 0) });
+        container.Add(Node.Selected("text-provider", "Terminal selection")).Bounds = new(0, 0, 400, 300);
+        graph.Focus = graph.Point = container;
+        using var reader = Reader(graph);
+        Assert.Equal("text-provider", reader.Read(new(1, SelectionReadOrigin.Pointer, 20, 30, 100))!.RuntimeId);
+    }
+
+    private static UiaSelectionReader Reader(Graph graph, SelectionReaderOptions? options = null)
+    {
+        var reader = new UiaSelectionReader(graph, options);
         Assert.True(reader.Start()); reader.SetEnabled(true, 1);
         return reader;
     }
@@ -319,6 +414,7 @@ public sealed class UiaSelectionReaderTests
         public nint NativeWindowHandle { get; set; }
         public bool IsPassword { get; set; }
         public bool IsOffscreen { get; set; }
+        public SelectionBounds? Bounds { get; set; }
         public ISelectionElement? Parent { get; set; }
         public ISelectionElement? FirstChild { get; private set; }
         public ISelectionElement? NextSibling { get; set; }

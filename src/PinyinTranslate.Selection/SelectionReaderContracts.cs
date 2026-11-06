@@ -17,6 +17,7 @@ public sealed record SelectionSnapshot(long Version, int ProcessId, int WindowHa
     public string RangeId { get; init; } = "";
     public string ScopeId { get; init; } = "";
     public long ActivityRevision { get; init; }
+    public bool IsCopiedText { get; init; }
 }
 
 public enum SelectionReadOrigin { Poll, Enable, Focus, SelectionEvent, Keyboard, Pointer }
@@ -30,6 +31,7 @@ public sealed record SelectionReadResult(int ProcessId, int WindowHandle, string
 /// <summary>All lifecycle/read/validate calls occur on one Monitor worker. Events carry no live UIA objects.</summary>
 public interface ISelectionReader : IDisposable
 {
+    string? UnavailableReason => null;
     event Action<SelectionReaderSignal>? Changed;
     bool Start();
     void SetEnabled(bool enabled, long epoch);

@@ -11,6 +11,7 @@ internal sealed class ImeRuntimeController : IDisposable
     private const string UnsupportedContextStatus = "此控件暂不支持拼音翻译和 Tab 输入；可使用划词或截图翻译。";
     private const string PreviewOnlyStatus = "仅预览，暂不可自动输入；普通 Tab 保持原作用。";
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
+    [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
     private readonly object _gate = new();
     private readonly EditableContextAdapter _contexts;
     private readonly Func<CancellationToken, Task<EditableContextSnapshot?>> _readContextAsync;
@@ -18,6 +19,7 @@ internal sealed class ImeRuntimeController : IDisposable
     private readonly Func<EditableContextSnapshot, BaselineAnchor?, string, CancellationToken, Func<bool>, Func<bool>?, Task<EditableReplaceResult>> _replaceAsync;
     private readonly ImeWriteDiagnostics? _writeDiagnostics;
     private readonly bool _copyOnly;
+    private nint _unavailableFocusWindow;
     private readonly ITranslationClipboardWriter? _clipboardWriter;
     private CopyTicket? _copyTicket;
     private CopyState _copyState;
@@ -26,7 +28,7 @@ internal sealed class ImeRuntimeController : IDisposable
     private readonly InputKeyboardHook _keyboard;
     private readonly InputPointerHook _pointer;
     private readonly int? _testProcessId;
-    private readonly Func<Process, string, string, ICandidateObserver> _observerFactory;
+    private readonly Func<Process, EditableContextSnapshot, ICandidateObserver> _observerFactory;
     // Null only in legacy uninitialized headless fixtures.
     private readonly UpdateQuiescenceTracker? _updateQuiescence = new();
     private readonly Func<Task>? _disableForUpdateAsync;
@@ -78,9 +80,12 @@ internal sealed class ImeRuntimeController : IDisposable
         _testProcessId = testProcessId;
         _copyOnly = copyOnly;
         _clipboardWriter = clipboardWriter ?? (copyOnly ? new WindowsTranslationClipboardWriter() : null);
-        _observerFactory = observerFactory ?? ((process, id, runtime) => new CandidateObserverClient(process, id, runtime));
+        _observerFactory = observerFactory is not null
+            ? (process, context) => observerFactory(process, context.AutomationId, context.FocusRuntimeId)
+            : (process, context) => new CandidateObserverClient(process, context.AutomationId, context.FocusRuntimeId,
+                foregroundScope: new(context.ForegroundWindow.ToInt64(), context.ForegroundProcessId));
         _contexts = new(verifiedTextInputProfiles ?? [TextInputProfile.WinFormsEdit, TextInputProfile.WinFormsRichEdit]);
-        _readContextAsync = _contexts.ReadFocusedAsync;
+        _readContextAsync = copyOnly ? _contexts.ReadPreviewFocusAsync : _contexts.ReadFocusedAsync;
         _foregroundWindow = GetForegroundWindow;
         _replaceAsync = _contexts.GuardedReplaceAsync;
         _writeDiagnostics = new();
@@ -228,6 +233,7 @@ internal sealed class ImeRuntimeController : IDisposable
                 token.ThrowIfCancellationRequested();
                 Binding? binding;
                 bool changed, bindingStopped;
+                bool showUnavailableFocus = false;
                 lock (_gate)
                 {
                     if (epoch != _epoch) return;
@@ -251,6 +257,14 @@ internal sealed class ImeRuntimeController : IDisposable
                     changed = _context is not null && (live is null || !EditableContextCapabilities.HasSameTextLocation(_context, live));
                     _context = live;
                     _contextReadAt = Stopwatch.GetTimestamp();
+                    if (_copyOnly && live is null)
+                    {
+                        nint foreground = _foregroundWindow();
+                        if (foreground != 0 && foreground != _unavailableFocusWindow &&
+                            GetWindowThreadProcessId(foreground, out uint foregroundProcess) != 0 && foregroundProcess != Environment.ProcessId)
+                        { _unavailableFocusWindow = foreground; showUnavailableFocus = true; }
+                    }
+                    else if (live is not null) _unavailableFocusWindow = 0;
                     _readAttempts++;
                     if (live is null)
                     {
@@ -276,6 +290,12 @@ internal sealed class ImeRuntimeController : IDisposable
                         _anchor = CreateAnchor(live);
                 }
                 if (live is not null) UpdateCapabilityStatus(live, epoch);
+                else if (showUnavailableFocus)
+                {
+                    lock (_gate)
+                        if (Enabled && epoch == _epoch && _context is null && _unavailableFocusWindow == _foregroundWindow())
+                            Report("当前编辑区的拼音焦点暂时无法核对；可先输入中文，开启划词模式后选中并按 Ctrl+C 兼容翻译。");
+                }
                 if (live is null)
                 {
                     if (binding is not null) DetachBinding(epoch, binding);
@@ -336,7 +356,7 @@ internal sealed class ImeRuntimeController : IDisposable
         try
         {
             process = Process.GetProcessById(context.FocusProcessId);
-            observer = _observerFactory(process, context.AutomationId, context.FocusRuntimeId);
+            observer = _observerFactory(process, context);
             var binding = new Binding(process, observer, identity);
             provisional = binding;
             binding.UpdateLifetime = _updateQuiescence?.Register(() => StopDetachedBindingAsync(binding));

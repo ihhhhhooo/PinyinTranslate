@@ -4,7 +4,7 @@ using System.Threading.Channels;
 namespace PinyinTranslate.Selection;
 
 /// <summary>Serializes selection reads, range validation and fresh-selection barriers.</summary>
-public sealed class SelectionMonitor : ISelectionMonitor
+public sealed partial class SelectionMonitor : ISelectionMonitor
 {
     private readonly object gate = new();
     private readonly ISelectionReader reader;
@@ -27,28 +27,34 @@ public sealed class SelectionMonitor : ISelectionMonitor
     private SelectionReadOrigin origin;
     private int? pointerX, pointerY;
     private nint activityWindow;
-    private sealed record Entry(SelectionReadResult Evidence, SelectionSnapshot Snapshot);
+    private sealed record Entry(SelectionReadResult Evidence, SelectionSnapshot Snapshot, CopiedSelection? Copy = null);
+    private bool readerAvailable;
 
     public event Action<long>? Invalidated;
     public event Action<SelectionSnapshot>? SelectionChanged;
     public event Action<string>? StatusChanged;
     public Task<bool> Ready => ready.Task;
 
-    public SelectionMonitor(Action<string>? diagnostic = null)
-        : this(new UiaSelectionReader(), new SelectionActivityMonitor(), null, diagnostic, true) { }
+    public SelectionMonitor(Action<string>? diagnostic = null, Func<uint, bool>? ignoreOwnClipboardSequence = null)
+        : this(new DesktopSelectionReader(), new SelectionActivityMonitor(), null, diagnostic, true,
+            new WindowsCopiedSelectionReader(ignoreOwnSequence: ignoreOwnClipboardSequence)) { }
 
     /// <summary>Injected readers/activity sources allow the actual monitor to run without native services.</summary>
     public SelectionMonitor(ISelectionReader reader, ISelectionActivityMonitor? activity = null,
-        SelectionMonitorOptions? options = null, Action<string>? diagnostic = null)
-        : this(reader, activity, options, diagnostic, false) { }
+        SelectionMonitorOptions? options = null, Action<string>? diagnostic = null, ISelectionClipboardReader? copyReader = null,
+        Func<long>? copyClock = null)
+        : this(reader, activity, options, diagnostic, false, copyReader, copyClock) { }
 
     private SelectionMonitor(ISelectionReader reader, ISelectionActivityMonitor? activity,
-        SelectionMonitorOptions? options, Action<string>? diagnostic, bool nativeWorker)
+        SelectionMonitorOptions? options, Action<string>? diagnostic, bool nativeWorker, ISelectionClipboardReader? copyReader,
+        Func<long>? copyClock = null)
     {
         this.reader = reader ?? throw new ArgumentNullException(nameof(reader));
         this.activity = activity;
         this.options = options ?? new();
         this.diagnostic = diagnostic;
+        this.copyReader = copyReader;
+        copyIntent = new(copyClock);
         if (this.options.MaximumTextLength <= 0 || this.options.ValidationTimeout <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(options));
         reader.Changed += ReaderChanged;
@@ -70,6 +76,7 @@ public sealed class SelectionMonitor : ISelectionMonitor
             enabled = value;
             captured = ++epoch;
             InvalidateLocked();
+            copyIntent.Reset();
             freshBlocked = value && requireFreshSelection;
             freshBaselineCaptured = freshActivity = false;
             pointerGestureInProgress = keyboardGestureInProgress = false;
@@ -89,14 +96,18 @@ public sealed class SelectionMonitor : ISelectionMonitor
         TryQueue(() =>
         {
             lock (gate) if (disposed || epoch != captured) return;
-            reader.SetEnabled(value, captured);
+            if (readerAvailable) reader.SetEnabled(value, captured);
         });
         if (value) ScheduleRead();
     }
 
     public bool IsCurrent(long candidate)
     {
-        lock (gate) return IsCurrentLocked(candidate);
+        Entry? entry;
+        lock (gate) { if (!IsCurrentLocked(candidate)) return false; entry = current; }
+        if (entry?.Copy is null) return true;
+        bool valid = CopyIsCurrent(entry.Copy);
+        lock (gate) return valid && ReferenceEquals(current, entry) && IsCurrentLocked(candidate);
     }
 
     private bool IsCurrentLocked(long candidate) => !disposed && enabled && !freshBlocked && !gestureInProgress &&
@@ -110,6 +121,16 @@ public sealed class SelectionMonitor : ISelectionMonitor
         {
             if (!IsCurrentLocked(snapshot.Version) || current!.Snapshot != snapshot) return false;
             entry = current;
+        }
+        if (entry.Copy is { } copied)
+        {
+            bool valid = CopyIsCurrent(copied);
+            lock (gate)
+            {
+                valid = valid && ReferenceEquals(current, entry) && IsCurrentLocked(snapshot.Version);
+                if (!valid && ReferenceEquals(current, entry)) InvalidateLocked();
+            }
+            return valid;
         }
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         int expired = 0;
@@ -183,6 +204,7 @@ public sealed class SelectionMonitor : ISelectionMonitor
 
     private void ActivityChanged(SelectionActivity change)
     {
+        CopyWork? copy = null;
         lock (gate)
         {
             if (disposed || !enabled || activity is null || change.Epoch != activityEpoch || change.Epoch != activity.Epoch) return;
@@ -205,7 +227,14 @@ public sealed class SelectionMonitor : ISelectionMonitor
                     keyboardGestureInProgress = false;
                 if (change.CompletesSelectionGesture) { freshActivity = true; completedGestureRead = true; }
             }
+            if (copyReader is not null && copyIntent.Observe(change) is { } request)
+            {
+                var cancellation = new CancellationTokenSource();
+                copyCapture = cancellation;
+                copy = new(request, epoch, version, handledActivityRevision, cancellation, cancellation.Token);
+            }
         }
+        if (copy is not null) _ = ReadCopiedSelectionAsync(copy);
         ScheduleRead();
     }
 
@@ -254,14 +283,25 @@ public sealed class SelectionMonitor : ISelectionMonitor
         SelectionReadRequest request;
         long capturedVersion, capturedRevision;
         bool capturedCompletion;
+        Entry? copiedEntry;
         lock (gate)
         {
-            if (disposed || !enabled || epoch != capturedEpoch || gestureInProgress || (activity?.Revision ?? 0) != handledActivityRevision) return;
+            if (disposed || !enabled || epoch != capturedEpoch || gestureInProgress || (activity?.Revision ?? 0) != handledActivityRevision ||
+                copyCapture is not null || copyIntent.HasPendingCopy) return;
+            copiedEntry = current?.Copy is not null ? current : null;
+            if (copiedEntry is null && !readerAvailable) return;
             capturedVersion = version;
             capturedRevision = activity?.Revision ?? 0;
             capturedCompletion = completedGestureRead;
             request = new(epoch, origin, pointerX, pointerY, activityWindow);
             origin = SelectionReadOrigin.Poll;
+        }
+        if (copiedEntry is not null)
+        {
+            // An immutable copied request needs no UIA range, but leaving its
+            // original foreground window still revokes it, including after display.
+            if (!CopyIsCurrent(copiedEntry.Copy!)) RevokeValidation(copiedEntry, "复制翻译的原窗口已离开，等待新的选择或复制。");
+            return;
         }
         SelectionReadResult? result;
         try { result = reader.Read(request); }
@@ -316,16 +356,20 @@ public sealed class SelectionMonitor : ISelectionMonitor
         if (emptyGestureNotified) return;
         emptyGestureNotified = true;
         long capturedVersion = version;
+        string message = reader.UnavailableReason ?? (copyReader is not null
+            ? "未读到选区接口；可选中文字后按 Ctrl+C（终端也可 Ctrl+Shift+C）兼容翻译，或使用截图翻译。"
+            : "未读取到可翻译的选中文字；如已划选，可尝试截图翻译。");
         Notice(() =>
         {
             lock (gate)
                 if (disposed || !enabled || epoch != capturedEpoch || version != capturedVersion || current is not null || gestureInProgress) return;
-            Invoke(StatusChanged, "未读取到可翻译的选中文字；如已划选，可尝试截图翻译。");
+            Invoke(StatusChanged, message);
         });
     }
 
     private void InvalidateLocked()
     {
+        CancelCopyCaptureLocked();
         long invalidated = ++version;
         current = null;
         Notice(() => Invoke(Invalidated, invalidated));
@@ -338,10 +382,15 @@ public sealed class SelectionMonitor : ISelectionMonitor
     {
         try
         {
-            if (!reader.Start()) { ready.TrySetResult(false); return; }
             activity?.Start();
-            ready.TrySetResult(true);
-            Notice(() => Invoke(StatusChanged, "划词监控已就绪"));
+            if (copyReader is not null && activity is not null) _ = ReadyForCopiedSelectionAsync();
+            try { readerAvailable = reader.Start(); } catch (Exception error) { Trace("reader-start=" + error.GetType().Name); }
+            if (readerAvailable)
+            {
+                ready.TrySetResult(true);
+                Notice(() => Invoke(StatusChanged, "划词监控已就绪"));
+            }
+            else if (copyReader is null || activity is null) { ready.TrySetResult(false); return; }
             foreach (var action in work.GetConsumingEnumerable())
                 try { action(); } catch (Exception error) { Trace("worker=" + error.GetType().Name); }
         }
@@ -369,6 +418,7 @@ public sealed class SelectionMonitor : ISelectionMonitor
         debounce.Dispose(); poll.Dispose();
         reader.Changed -= ReaderChanged;
         if (activity is not null) { activity.Activity -= ActivityChanged; activity.Dispose(); }
+        copyReader?.Dispose();
         work.CompleteAdding();
         if (Thread.CurrentThread != worker) worker.Join(TimeSpan.FromSeconds(1));
         notices.Writer.TryComplete(); ready.TrySetResult(false);

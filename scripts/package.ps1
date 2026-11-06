@@ -109,7 +109,7 @@ try {
         'PinyinTranslate.ImeBridge.exe', 'PinyinTranslate.ImeBridge.dll', 'PinyinTranslate.ImeBridge.deps.json', 'PinyinTranslate.ImeBridge.runtimeconfig.json')) {
         if (-not (Test-Path -LiteralPath (Join-Path $stageDir $required) -PathType Leaf)) { throw "Incomplete application bundle: $required." }
     }
-    foreach ($name in @('README.md', 'THIRD-PARTY-NOTICES.md', 'LICENSE', 'RELEASE-NOTES.md')) {
+    foreach ($name in @('README.md', 'README.en.md', 'THIRD-PARTY-NOTICES.md', 'LICENSE', 'RELEASE-NOTES.md')) {
         $file = Join-Path $projectRoot $name
         if ($name -eq 'RELEASE-NOTES.md' -and -not $Velopack -and -not (Test-Path -LiteralPath $file)) { continue }
         Copy-Item -LiteralPath $file -Destination $stageDir -Force
@@ -121,7 +121,7 @@ try {
     }
     $reportDir = Join-Path $stageDir 'reports'
     New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
-    foreach ($report in @('updates.md', 'update-performance.md', 'pricing.md', 'multilingual.md', 'selection-bidirectional.md', 'selection-fix.md', 'auto-copy.md', 'acceptance.md', 'ime-prototype.md', 'ime-integration.md', 'ime-recovery.md',
+    foreach ($report in @('updates.md', 'update-performance.md', 'pricing.md', 'multilingual.md', 'selection-bidirectional.md', 'selection-fix.md', 'editor-compatibility.md', 'auto-copy.md', 'acceptance.md', 'ime-prototype.md', 'ime-integration.md', 'ime-recovery.md',
         'universal-input.md', 'tab-paste-fix.md', 'tab-paste-comparison.json', 'quality.md', 'decisions.md', 'api-budget.json')) {
         $reportSource = Join-Path $projectRoot ('reports\' + $report)
         if (Test-Path -LiteralPath $reportSource) { Copy-Item -LiteralPath $reportSource -Destination $reportDir -Force }

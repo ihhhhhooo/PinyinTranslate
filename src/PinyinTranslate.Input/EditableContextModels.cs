@@ -45,6 +45,8 @@ public sealed record EditableContextSnapshot
     public bool IsReadOnlyKnown { get; init; } = true;
     public bool IsPassword { get; init; }
     public bool CanPreview { get; init; }
+    /// <summary>Raw UIA ancestry was checked against the actual foreground HWND; preview only.</summary>
+    public bool HasVerifiedForegroundAncestry { get; init; }
     public bool HasCompleteText { get; init; } = true;
     public CompositionState CompositionState { get; init; }
     public bool HasActiveCompositionRange { get; init; }

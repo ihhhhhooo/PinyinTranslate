@@ -14,10 +14,11 @@ public partial class SelectionResultWindow : Window
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern IntPtr SetWindowLongPtr64(IntPtr hwnd, int index, IntPtr value);
 
     public SelectionResultWindow(string source, string translation, Action<string, bool>? onCopied = null,
-        string targetLanguage = TranslationLanguages.SimplifiedChinese)
+        string targetLanguage = TranslationLanguages.SimplifiedChinese, bool copiedText = false)
     {
         _onCopied = onCopied;
         InitializeComponent();
+        if (copiedText) Title = ResultHeading.Text = "复制兼容翻译";
         OriginalLine.Content = source;
         TranslatedLine.Content = translation;
         TranslationLabel.Text = "译文 · " + TranslationLanguages.Get(targetLanguage).DisplayName;
@@ -41,6 +42,7 @@ public partial class SelectionResultWindow : Window
         try
         {
             Clipboard.SetText(text);
+            PinyinTranslate.Input.OwnClipboardWrites.NoteNativeCopy();
             try { _onCopied?.Invoke(text, kind == "Original"); } catch (Exception) { }
             CopyFeedback.Text = kind == "Original" ? "已复制原文" : "已复制译文";
         }

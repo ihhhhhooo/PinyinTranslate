@@ -21,7 +21,6 @@ public sealed record CandidateObservation(long Version, nint ForegroundWindow, i
 public sealed class CandidateObserver : ICandidateObserver
 {
     [DllImport("user32.dll")] private static extern nint GetForegroundWindow();
-    [DllImport("user32.dll")] private static extern nint GetAncestor(nint hwnd, uint flags);
     [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(nint hwnd, out uint processId);
     [UnmanagedFunctionPointer(CallingConvention.Winapi)]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -40,6 +39,7 @@ public sealed class CandidateObserver : ICandidateObserver
     private readonly int _allowedProcessId;
     private readonly string _allowedAutomationId;
     private readonly string? _allowedFocusRuntimeId;
+    private readonly CandidateForegroundScope? _foregroundScope;
     private FocusIdentity? _lastFocusIdentity;
     private HashSet<int> _knownTextInputHostProcessIds = [];
     private string? _lastHostDiagnostic, _lastReadDiagnostic, _lastFocusDiagnostic;
@@ -63,13 +63,17 @@ public sealed class CandidateObserver : ICandidateObserver
     public event Action<long>? CandidatesCleared;
     public event Action<string>? Status;
     /// <summary>For diagnostics only: limit reads to one explicitly approved target process.</summary>
-    public CandidateObserver(Process targetProcess, string allowedAutomationId, string? allowedFocusRuntimeId = null)
+    public CandidateObserver(Process targetProcess, string allowedAutomationId, string? allowedFocusRuntimeId = null,
+        CandidateForegroundScope? foregroundScope = null)
     {
         ArgumentNullException.ThrowIfNull(targetProcess);
         int allowedProcessId = targetProcess.Id;
         if (allowedProcessId <= 0 || allowedProcessId == Environment.ProcessId) throw new ArgumentOutOfRangeException(nameof(allowedProcessId));
         if (string.IsNullOrWhiteSpace(allowedAutomationId) && string.IsNullOrWhiteSpace(allowedFocusRuntimeId))
             throw new ArgumentException("A focus runtime identity or AutomationId is required.");
+        if (foregroundScope is not null && (!foregroundScope.IsValid || foregroundScope.ProcessId == Environment.ProcessId))
+            throw new ArgumentException("A valid external foreground host is required.", nameof(foregroundScope));
+        _foregroundScope = foregroundScope;
         if (targetProcess.HasExited) throw new InvalidOperationException("目标样例进程已退出。");
         _targetProcess = targetProcess;
         _allowedProcessId = allowedProcessId;
@@ -111,7 +115,8 @@ public sealed class CandidateObserver : ICandidateObserver
     private bool IsAllowedForeground()
     {
         nint foreground = GetForegroundWindow();
-        return foreground != 0 && GetWindowThreadProcessId(foreground, out uint pid) != 0 && pid == (uint)_allowedProcessId;
+        return foreground != 0 && GetWindowThreadProcessId(foreground, out uint pid) != 0 &&
+            (_foregroundScope is null ? pid == (uint)_allowedProcessId : _foregroundScope.Allows(foreground, pid));
     }
     private bool TargetAlive()
     {
@@ -162,8 +167,9 @@ public sealed class CandidateObserver : ICandidateObserver
             // A global UIA focus event may describe virtual focus in the IME's
             // candidate window. Re-read the editor focus instead of adopting the
             // event sender as the keyboard insertion target.
-            var focused = automation.FocusedElement();
-            current = ReadFocusIdentity(focused, out currentPid);
+            var focused = ReadFocusContext(automation);
+            currentPid = focused?.FocusProcessId ?? 0;
+            current = focused is null ? null : new(focused.FocusProcessId, focused.FocusRuntimeId);
             actualTarget = current is not null && IsAllowedForeground() && MatchesFocus(focused) && IsAllowedForeground();
         }
         catch (Exception) { /* Unknown actual focus remains a hard cancellation boundary. */ }
@@ -233,7 +239,11 @@ public sealed class CandidateObserver : ICandidateObserver
         string stage = "uia-create";
         try
         {
-            using var automation = new UIA3Automation();
+            using var automation = new UIA3Automation
+            {
+                ConnectionTimeout = TimeSpan.FromMilliseconds(250),
+                TransactionTimeout = TimeSpan.FromMilliseconds(250)
+            };
             stage = "uia-desktop-subscribe";
             var root = automation.GetDesktop();
             // Window discovery must remain subscribed: the input host can appear only
@@ -551,27 +561,16 @@ public sealed class CandidateObserver : ICandidateObserver
     {
         CandidateObservation? Reject(string code) { Diagnostic(ref _lastReadDiagnostic, code); return null; }
         nint foreground = GetForegroundWindow();
-        if (foreground == 0 || !IsCurrent(version) ||
-            GetWindowThreadProcessId(foreground, out uint foregroundPid) == 0 || foregroundPid != (uint)_allowedProcessId) return Reject("FOREGROUND_OR_VERSION_REJECTED");
-        var focused = automation.FocusedElement();
+        if (foreground == 0 || !IsCurrent(version)) return Reject("FOREGROUND_OR_VERSION_REJECTED");
+        var focused = ReadFocusContext(automation);
         if (!MatchesFocus(focused)) return Reject("FOCUS_IDENTITY_OR_PASSWORD_REJECTED");
-        int pid = focused.Properties.ProcessId.ValueOrDefault;
+        int pid = focused!.FocusProcessId;
         if (pid != _allowedProcessId || !TargetAlive()) return null;
-        var runtime = string.Join('.', focused.Properties.RuntimeId.ValueOrDefault ?? Array.Empty<int>());
+        var runtime = focused.FocusRuntimeId;
         if (runtime.Length == 0) return null;
-        var walker = automation.TreeWalkerFactory.GetControlViewWalker();
-        var ancestor = focused;
-        nint nativeWindow = 0;
-        for (int depth = 0; ancestor != null && depth < 32; depth++)
-        {
-            if (ancestor.Properties.IsPassword.IsSupported && ancestor.Properties.IsPassword.ValueOrDefault) return null;
-            if (nativeWindow == 0) nativeWindow = ancestor.Properties.NativeWindowHandle.ValueOrDefault;
-            ancestor = walker.GetParent(ancestor);
-        }
-        if (ancestor != null || nativeWindow == 0) return Reject("FOCUS_NATIVE_ROOT_UNAVAILABLE");
-        nint targetRoot = GetAncestor(nativeWindow, 2);
-        nint foregroundRoot = GetAncestor(foreground, 2);
-        if (targetRoot == 0 || foregroundRoot == 0 || targetRoot != foregroundRoot) return Reject("FOCUS_FOREGROUND_ROOT_MISMATCH");
+        // ReadFocusContext has already verified the raw-view ancestry against
+        // this foreground root without requiring a text/edit control role.
+        if (focused.ForegroundWindow != foreground) return Reject("FOCUS_FOREGROUND_ROOT_MISMATCH");
         var matches = new List<AutomationElement>();
         foreach (var host in hosts)
         {
@@ -611,27 +610,25 @@ public sealed class CandidateObserver : ICandidateObserver
             previous = bounds;
         }
         if (names.Count == 0 || !IsCurrent(version) || GetForegroundWindow() != foreground) return Reject("EMPTY_PAGE_OR_CHANGED_READ_BOUNDARY");
-        var focusedAgain = automation.FocusedElement();
+        var focusedAgain = ReadFocusContext(automation);
         if (!MatchesFocus(focusedAgain) ||
-            focusedAgain.Properties.ProcessId.ValueOrDefault != pid ||
-            string.Join('.', focusedAgain.Properties.RuntimeId.ValueOrDefault ?? Array.Empty<int>()) != runtime) return null;
+            focusedAgain!.FocusProcessId != pid || focusedAgain.FocusRuntimeId != runtime ||
+            focusedAgain.ForegroundWindow != foreground) return null;
         if (!TargetAlive() || !IsCurrent(version) || GetForegroundWindow() != foreground) return null;
         Diagnostic(ref _lastReadDiagnostic, $"CANDIDATE_READ_OK visibleItems={names.Count}");
         return new(version, foreground, pid, runtime, names[0], Array.AsReadOnly(names.ToArray()), menuBounds.Value);
     }
 
-    private bool MatchesFocus(AutomationElement? focused) =>
-        focused != null && focused.Properties.IsPassword.IsSupported && !focused.Properties.IsPassword.ValueOrDefault &&
-        focused.Properties.ProcessId.IsSupported && focused.Properties.ProcessId.ValueOrDefault == _allowedProcessId &&
-        focused.Properties.RuntimeId.IsSupported &&
-        (string.IsNullOrEmpty(_allowedAutomationId) ||
-         (focused.Properties.AutomationId.IsSupported && focused.Properties.AutomationId.ValueOrDefault == _allowedAutomationId)) &&
-        (_allowedFocusRuntimeId is null ||
-         string.Join('.', focused.Properties.RuntimeId.ValueOrDefault ?? Array.Empty<int>()) == _allowedFocusRuntimeId);
+    private static EditableContextSnapshot? ReadFocusContext(UIA3Automation automation) =>
+        PreviewFocusReader.Read(new UiaPreviewFocusEnvironment(automation));
+    private bool MatchesFocus(EditableContextSnapshot? focused) => focused is { CanPreview: true, IsPassword: false } &&
+        focused.FocusProcessId == _allowedProcessId &&
+        (string.IsNullOrEmpty(_allowedAutomationId) || focused.AutomationId == _allowedAutomationId) &&
+        (_allowedFocusRuntimeId is null || focused.FocusRuntimeId == _allowedFocusRuntimeId);
 
     private bool ConfirmNoVisibleCandidates(UIA3Automation automation, IEnumerable<AutomationElement> hosts, long version)
     {
-        if (!IsCurrent(version) || !MatchesFocus(automation.FocusedElement())) return false;
+        if (!IsCurrent(version) || !MatchesFocus(ReadFocusContext(automation))) return false;
         bool inspectedHost = false;
         foreach (var host in hosts)
         {
@@ -639,7 +636,7 @@ public sealed class CandidateObserver : ICandidateObserver
             foreach (var menu in host.FindAllDescendants(cf => cf.ByAutomationId("IME_Candidate_Window")))
                 if (!menu.Properties.IsOffscreen.IsSupported || !menu.Properties.IsOffscreen.ValueOrDefault) return false;
         }
-        return inspectedHost && IsCurrent(version) && MatchesFocus(automation.FocusedElement());
+        return inspectedHost && IsCurrent(version) && MatchesFocus(ReadFocusContext(automation));
     }
 
     private static CandidateBounds? VisibleBounds(AutomationElement element)

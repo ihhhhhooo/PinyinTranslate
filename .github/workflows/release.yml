@@ -19,7 +19,7 @@ defaults:
 
 jobs:
   build:
-    if: github.repository == 'ihhhhhooo/trans'
+    if: github.repository == 'ihhhhhooo/PinyinTranslate'
     runs-on: windows-latest
     timeout-minutes: 45
     permissions:
