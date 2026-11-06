@@ -127,6 +127,13 @@
                                 </Grid>
                             </StackPanel>
                             </WrapPanel>
+                            <Grid Margin="46,10,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="译文自动复制" FontSize="12" VerticalAlignment="Center"/>
+                                <CheckBox x:Name="SelectionAutoCopyCheck" Grid.Column="1" Style="{StaticResource ModeSwitch}"
+                                          AutomationProperties.Name="划词译文自动复制" ToolTip="默认开启，翻译成功后覆盖剪贴板，可直接 Ctrl+V 粘贴。关闭后仅展示译文；点击原文或译文仍可复制。切换立即保存。"
+                                          Checked="SelectionAutoCopyChanged" Unchecked="SelectionAutoCopyChanged"/>
+                            </Grid>
                         </StackPanel>
 
                         <Border Height="1" Background="{DynamicResource Divider}" Opacity="0.35" Margin="0,14,0,0"/>

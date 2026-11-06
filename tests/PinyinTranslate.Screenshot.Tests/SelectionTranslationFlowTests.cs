@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
+using System.IO;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using PinyinTranslate.App;
 using PinyinTranslate.Core;
+using PinyinTranslate.Input;
 using PinyinTranslate.Selection;
 
 namespace PinyinTranslate.Screenshot.Tests;
@@ -28,6 +30,8 @@ public sealed class SelectionTranslationFlowTests
         Assert.Null(fixture.Get("_client"));
         Assert.Null(fixture.Get("_resultWindow"));
         Assert.Contains("翻译完成", fixture.Services.Status);
+        Assert.Equal(shown.Translation, Assert.Single(fixture.Clipboard.Copies));
+        Assert.Contains("已复制译文", Assert.Single(fixture.CopyFeedback));
         if (copiedText) Assert.Contains("复制兼容", fixture.Services.Status);
     }
 
@@ -39,6 +43,7 @@ public sealed class SelectionTranslationFlowTests
         await fixture.Run(Snapshot(2, "Same copied and selected text") with { IsCopiedText = true });
         Assert.Single(fixture.Translated); Assert.Equal(2, fixture.Shown.Count);
         Assert.True(fixture.Shown.Last().Source.IsCopiedText); Assert.Contains("复制兼容", fixture.Services.Status);
+        Assert.Equal(2, fixture.Clipboard.Copies.Count);
     }
 
     [Theory]
@@ -50,6 +55,7 @@ public sealed class SelectionTranslationFlowTests
         fixture.Monitor.Validation = (_, count) => count != rejectedValidation;
         await fixture.Run(Snapshot(1, "Selected web page text"));
         Assert.Empty(fixture.Shown);
+        Assert.Empty(fixture.Clipboard.Copies);
         Assert.Equal(rejectedValidation == 1 ? 0 : 1, fixture.Translated.Count);
         Assert.Contains("本轮已结束", fixture.Services.Status);
     }
@@ -74,6 +80,7 @@ public sealed class SelectionTranslationFlowTests
         response.SetResult("旧译文");
         await translating.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Empty(fixture.Shown);
+        Assert.Empty(fixture.Clipboard.Copies);
         Assert.Equal(2, Assert.Single(fixture.Dismissed));
     }
 
@@ -133,6 +140,7 @@ public sealed class SelectionTranslationFlowTests
         fixture.Translate = (_, _) => Task.FromException<string>(new InvalidOperationException("Synthetic API failure"));
         await fixture.Run(Snapshot(1, "Some selected text"));
         Assert.Empty(fixture.Shown);
+        Assert.Empty(fixture.Clipboard.Copies);
         Assert.Contains("Synthetic API failure", fixture.Services.Status);
     }
 
@@ -353,6 +361,182 @@ public sealed class SelectionTranslationFlowTests
         Assert.Single(fixture.Shown);
     }
 
+    [Fact]
+    public async Task AutoCopyCanBeDisabledWithoutDisablingTranslationAndEnabledForTheNextSelection()
+    {
+        using var fixture = new Fixture();
+        fixture.SetAutoCopy(false);
+        await fixture.Run(Snapshot(1, "Translate without replacing the clipboard"));
+        Assert.Single(fixture.Shown);
+        Assert.Equal(0, fixture.Clipboard.Attempts);
+        Assert.Contains("点击译文可复制", Assert.Single(fixture.CopyFeedback));
+        fixture.SetAutoCopy(true);
+        await fixture.Run(Snapshot(2, "A newly selected sentence"));
+        Assert.Equal("译文：A newly selected sentence", Assert.Single(fixture.Clipboard.Copies));
+        Assert.Contains("已复制译文", fixture.CopyFeedback.Last());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ChangingAutoCopyWhileTranslatingDoesNotRetroactivelyAuthorizeThatRequest(bool initiallyEnabled)
+    {
+        using var fixture = new Fixture();
+        fixture.SetAutoCopy(initiallyEnabled);
+        var entered = Completion<bool>();
+        var release = Completion<string>();
+        fixture.Translate = (_, _) => { entered.TrySetResult(true); return release.Task; };
+        Task request = fixture.Run(Snapshot(1, "The earlier selection"));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.SetAutoCopy(!initiallyEnabled);
+        if (initiallyEnabled) fixture.SetAutoCopy(true);
+        release.SetResult("Show this result without copying it");
+        await request.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Single(fixture.Shown);
+        Assert.Empty(fixture.Clipboard.Copies);
+        Assert.Equal(0, fixture.Clipboard.Attempts);
+        Assert.DoesNotContain("已复制译文", fixture.Services.Status);
+    }
+
+    [Theory]
+    [InlineData("selection")]
+    [InlineData("mode")]
+    [InlineData("screenshot")]
+    [InlineData("dispose")]
+    [InlineData("languages")]
+    [InlineData("update")]
+    public async Task AQueuedCopyRechecksAllRevocationBarriersBeforeTouchingTheClipboard(string change)
+    {
+        using var fixture = new Fixture();
+        var entered = Completion<bool>();
+        var release = Completion<bool>();
+        var finished = Completion<bool>();
+        fixture.Clipboard.Copy = async (text, current, token) =>
+        {
+            entered.TrySetResult(true);
+            await release.Task;
+            var result = fixture.Clipboard.Publish(text, current, token);
+            finished.TrySetResult(true);
+            return result;
+        };
+        Task request = fixture.Run(Snapshot(1, "The queued source"));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        switch (change)
+        {
+            case "selection": fixture.Invalidate(2); break;
+            case "mode": fixture.Set("<SelectionEnabled>k__BackingField", false); break;
+            case "screenshot": fixture.Set("_captureSuspendCount", 1); break;
+            case "dispose": fixture.Set("_disposed", 1); break;
+            case "languages": fixture.ChangePair("en", "ja"); break;
+            case "update":
+                var preparation = new UpdatePreparation(() => new(false, true), _ => Task.CompletedTask, _ => Task.CompletedTask);
+                fixture.Set("_updatePreparation", preparation);
+                await preparation.PrepareAsync(default);
+                break;
+        }
+        release.TrySetResult(true);
+        await request.WaitAsync(TimeSpan.FromSeconds(3));
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Empty(fixture.Clipboard.Copies);
+        Assert.Empty(fixture.Shown);
+    }
+
+    [Fact]
+    public async Task DisablingAndReenablingAutoCopyRevokesAnAlreadyQueuedWriteButKeepsItsPreview()
+    {
+        using var fixture = new Fixture();
+        var entered = Completion<bool>();
+        var release = Completion<bool>();
+        fixture.Clipboard.Copy = async (text, current, token) =>
+        {
+            entered.TrySetResult(true);
+            await release.Task;
+            return fixture.Clipboard.Publish(text, current, token);
+        };
+        Task request = fixture.Run(Snapshot(1, "A queued copy"));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.SetAutoCopy(false);
+        fixture.SetAutoCopy(true);
+        release.SetResult(true);
+        await request.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Empty(fixture.Clipboard.Copies);
+        Assert.Single(fixture.Shown);
+        Assert.Contains("点击译文可复制", Assert.Single(fixture.CopyFeedback));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AClipboardFailureStillPresentsTheTranslationAndNeverReportsACopySuccess(bool throws)
+    {
+        using var fixture = new Fixture();
+        fixture.Clipboard.Copy = (_, _, _) => throws
+            ? throw new InvalidOperationException("Synthetic clipboard failure")
+            : Task.FromResult(new TranslationClipboardCopyResult(false, false, "ClipboardBusy"));
+        await fixture.Run(Snapshot(1, "A successfully translated selection"));
+        Assert.Single(fixture.Shown);
+        Assert.Empty(fixture.Clipboard.Copies);
+        Assert.Contains("翻译完成", fixture.Services.Status);
+        Assert.Contains("点击译文可复制", Assert.Single(fixture.CopyFeedback));
+        Assert.DoesNotContain("已复制译文", fixture.Services.Status);
+    }
+
+    [Fact]
+    public async Task ABlockedClipboardHasABoundedWaitAndItsLateCopyCannotOverwriteANewerResult()
+    {
+        using var fixture = new Fixture();
+        fixture.Set("_selectionCopyTimeout", TimeSpan.FromMilliseconds(50));
+        var release = Completion<bool>();
+        var finished = Completion<bool>();
+        fixture.Clipboard.Copy = async (text, current, token) =>
+        {
+            await release.Task; // Deliberately ignore cancellation until the actual write guard.
+            var result = fixture.Clipboard.Publish(text, current, token);
+            finished.TrySetResult(true);
+            return result;
+        };
+        await fixture.Run(Snapshot(1, "An old translation")).WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Single(fixture.Shown);
+        Assert.Contains("自动复制超时", Assert.Single(fixture.CopyFeedback));
+        fixture.Clipboard.Copy = null;
+        await fixture.Run(Snapshot(2, "A newer translation"));
+        release.TrySetResult(true);
+        await finished.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Equal("译文：A newer translation", Assert.Single(fixture.Clipboard.Copies));
+        Assert.Contains("已复制译文", fixture.Services.Status);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OnlySuccessfulCopiesIncrementStatisticsIncludingCachedTranslations(bool fails)
+    {
+        using var fixture = new Fixture();
+        string root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "PinyinTranslate-selection-autocopy-tests"));
+        string directory = Path.Combine(root, Guid.NewGuid().ToString("N"));
+        try
+        {
+            var statistics = new StatisticsStore(Path.Combine(directory, "statistics.json"));
+            fixture.Set("_statistics", statistics);
+            if (fails) fixture.Clipboard.Copy = (_, _, _) => Task.FromResult(new TranslationClipboardCopyResult(false, false, "ClipboardBusy"));
+            await fixture.Run(Snapshot(1, "The cached source"));
+            await fixture.Run(Snapshot(2, "The cached source"));
+            var data = statistics.Snapshot().Data;
+            Assert.Single(fixture.Translated);
+            Assert.Equal(2, data.SelectionResults);
+            Assert.Equal(1, data.CachedResults);
+            Assert.Equal(fails ? 0 : 2, data.TranslationCopies);
+            Assert.Equal(fails ? 0 : 2 * StatisticsStore.Characters("译文：The cached source"), data.CopiedCharacters);
+            Assert.Equal(0, data.OriginalCopies);
+            Assert.Equal(0, data.SelectionFailures);
+        }
+        finally
+        {
+            string resolved = Path.GetFullPath(directory);
+            if (Path.GetDirectoryName(resolved) == root && Directory.Exists(resolved)) Directory.Delete(resolved, true);
+        }
+    }
+
     private static SelectionSnapshot Snapshot(long version, string text) => new(version, 1234, 42, "document-body", text);
     private static TaskCompletionSource<T> Completion<T>() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -368,6 +552,8 @@ public sealed class SelectionTranslationFlowTests
         public ConcurrentQueue<string> ShownTargets { get; } = new();
         public ConcurrentQueue<(SelectionSnapshot Source, string Translation)> Shown { get; } = new();
         public ConcurrentQueue<long> Dismissed { get; } = new();
+        public FakeClipboardWriter Clipboard { get; } = new();
+        public ConcurrentQueue<string> CopyFeedback { get; } = new();
         public Func<string, CancellationToken, Task<string>> Translate { get; set; } = (text, _) => Task.FromResult("译文：" + text);
         public string Target { get; set; } = TranslationLanguages.SimplifiedChinese;
         public Action<CancellationToken>? RequestCreated { get; set; }
@@ -378,6 +564,7 @@ public sealed class SelectionTranslationFlowTests
             Present = (source, text, _, current) => { if (current()) Shown.Enqueue((source, text)); return Task.CompletedTask; };
             Set("_gate", new object());
             Set("_selection", Monitor);
+            Set("_selectionClipboardWriter", Clipboard);
             Set("_cache", _cache);
             Set("_status", "Ready");
             Set("<Settings>k__BackingField", new AppSettings("Ctrl+Alt+T", "Ctrl+Alt+D", "Ctrl+Alt+S"));
@@ -388,10 +575,10 @@ public sealed class SelectionTranslationFlowTests
                 string target = Target;
                 return new(await Translate(text, token), target);
             }));
-            Set("_presentSelection", new Func<SelectionSnapshot, TextTranslation, CancellationToken, Func<bool>, Task>(
-                (source, text, token, current) =>
+            Set("_presentSelection", new Func<SelectionSnapshot, TextTranslation, string, CancellationToken, Func<bool>, Task>(
+                (source, text, feedback, token, current) =>
                 {
-                    if (current()) ShownTargets.Enqueue(text.TargetLanguage);
+                    if (current()) { ShownTargets.Enqueue(text.TargetLanguage); CopyFeedback.Enqueue(feedback); }
                     return Present(source, text.Translation, token, current);
                 }));
             Set("_dismissSelection", new Action<long>(Dismissed.Enqueue));
@@ -415,6 +602,8 @@ public sealed class SelectionTranslationFlowTests
         }
         public void ChangePair(string a, string b) => typeof(DesktopServices).GetMethod("CommitSettings", PrivateInstance)!.Invoke(Services,
             [Services.Settings with { SelectionLanguageA = a, SelectionLanguageB = b }]);
+        public void SetAutoCopy(bool enabled) => typeof(DesktopServices).GetMethod("CommitSettings", PrivateInstance)!.Invoke(Services,
+            [Services.Settings with { SelectionAutoCopy = enabled }]);
         public object? Get(string name) => typeof(DesktopServices).GetField(name, PrivateInstance)!.GetValue(Services);
         public void Set(string name, object? value) => typeof(DesktopServices).GetField(name, PrivateInstance)!.SetValue(Services, value);
         public void OtherStatus(string message) => typeof(DesktopServices).GetMethod("SetStatus", PrivateInstance)!.Invoke(Services, [message]);
@@ -425,6 +614,26 @@ public sealed class SelectionTranslationFlowTests
             foreach (var request in _requests) { try { request.Cancel(); } catch (ObjectDisposedException) { } }
             _cache.Dispose();
         }
+    }
+
+    private sealed class FakeClipboardWriter : ITranslationClipboardWriter
+    {
+        public ConcurrentQueue<string> Copies { get; } = new();
+        public int Attempts;
+        public Func<string, Func<bool>, CancellationToken, Task<TranslationClipboardCopyResult>>? Copy;
+        public Task<TranslationClipboardCopyResult> CopyAsync(string text, Func<bool> current, CancellationToken token)
+        {
+            Interlocked.Increment(ref Attempts);
+            if (Copy is not null) return Copy(text, current, token);
+            return Task.FromResult(Publish(text, current, token));
+        }
+        public TranslationClipboardCopyResult Publish(string text, Func<bool> current, CancellationToken token)
+        {
+            if (token.IsCancellationRequested || !current()) return new(false, false, "ScopeExpired");
+            Copies.Enqueue(text);
+            return new(true, true, "Copied");
+        }
+        public void Dispose() { }
     }
 
     private sealed class FakeMonitor : ISelectionMonitor

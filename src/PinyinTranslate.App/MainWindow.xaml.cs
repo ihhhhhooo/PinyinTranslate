@@ -54,6 +54,8 @@ public partial class MainWindow : Window
             SelectionShortcut.IsReadOnly = _savingSettings || _services.IsPreparingForUpdate;
             ScreenshotShortcut.IsReadOnly = _savingSettings || _services.IsPreparingForUpdate;
             bool canEditLanguages = !_savingSettings && !_services.IsPreparingForUpdate;
+            SelectionAutoCopyCheck.IsEnabled = canEditLanguages;
+            SelectionAutoCopyCheck.IsChecked = _services.Settings.SelectionAutoCopy;
             ImeTargetChoice.IsEnabled = SelectionLanguageAChoice.IsEnabled = SelectionLanguageBChoice.IsEnabled =
                 ScreenshotTargetChoice.IsEnabled = SwapLanguagesButton.IsEnabled = SaveFeatureSettingsButton.IsEnabled = canEditLanguages;
             var settings = _services.Settings;
@@ -176,6 +178,25 @@ public partial class MainWindow : Window
         try { var error = await _services.SetImeEnabledAsync(ImeCheck.IsChecked == true); if (error != null) ShowError(error); }
         catch (Exception ex) { ShowError(ex.Message); }
         RefreshState();
+    }
+    private async void SelectionAutoCopyChanged(object sender, RoutedEventArgs e)
+    {
+        if (_refreshing || !IsInitialized || _savingSettings || _services.IsPreparingForUpdate) return;
+        bool enabled = SelectionAutoCopyCheck.IsChecked == true;
+        _savingSettings = true;
+        RefreshState();
+        try
+        {
+            var error = await _services.ApplySettingsAsync(_services.Settings with { SelectionAutoCopy = enabled });
+            ShortcutStatus.Text = error ?? $"划词译文自动复制已{(enabled ? "开启" : "关闭")}并保存";
+            ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, error == null ? "Muted" : "ErrorInk");
+        }
+        catch (Exception)
+        {
+            ShortcutStatus.Text = "自动复制设置保存失败，请重试";
+            ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk");
+        }
+        finally { _savingSettings = false; RefreshState(); }
     }
     private async void SaveSettingsClicked(object sender, RoutedEventArgs e)
     {

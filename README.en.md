@@ -13,12 +13,12 @@ For **Windows 11 x64**. Bring your own **DeepSeek API key**; the .NET runtime is
 | Feature | Default shortcut | How it works |
 | --- | --- | --- |
 | Input translation | `Ctrl+Alt+T` | Translate the first Microsoft Pinyin candidate and copy the result. Wait for “已复制” (Copied), press `Esc` to cancel Pinyin, then `Ctrl+V` to paste. |
-| Two-way text translation | `Ctrl+Alt+D` | Select text to translate between your chosen languages. If automatic selection reading fails, select and press `Ctrl+C`; terminals also support `Ctrl+Shift+C`. Click a result to copy it. |
+| Two-way text translation | `Ctrl+Alt+D` | Select text to translate between your chosen languages. Successful results are copied automatically by default; press `Ctrl+V` to paste. If automatic selection reading fails, select and press `Ctrl+C`; terminals also support `Ctrl+Shift+C`. |
 | Screenshot translation | `Ctrl+Alt+S` | Capture a region and compare the original image with the original text and translation, paragraph by paragraph. |
 
 Languages: Chinese (Simplified/Traditional), English, Japanese, Korean, French, German, Spanish, Portuguese, Russian, and Vietnamese. Set separate targets for input and screenshots, or choose any two languages for text translation.
 
-Also includes in-app updates, usage statistics, and multiple themes.
+The **译文自动复制** (Auto-copy translation) switch in the text translation section is on by default and saves immediately. Turn it off to copy results manually by clicking them. Also includes in-app updates, usage statistics, and multiple themes.
 
 ## Demo
 
@@ -43,7 +43,7 @@ Demo media is coming soon. See the [media instructions](docs/media/README.md) fo
 ## Notes
 
 - Translation content is sent to DeepSeek and billed to your API account. In-app cost figures are estimates.
-- Input translation replaces clipboard text. While text translation is enabled, manually copying a fresh selection also requests translation; turning the mode off stops both paths.
+- Input translation and text translation with auto-copy enabled replace clipboard text. While text translation is enabled, manually copying a fresh selection also requests translation; turning the mode off stops both paths.
 - Automatic reading depends on the target app. Use copy-to-translate or screenshots when needed; automatic compatibility with every app is not guaranteed.
 
 [Detailed guide](docs/guide.md) · [Languages](reports/multilingual.md) · [Pricing](reports/pricing.md) · [Updates](reports/updates.md) (these guides are in Chinese) · [Report an issue](https://github.com/ihhhhhooo/PinyinTranslate/issues) · [MIT License](LICENSE)

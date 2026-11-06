@@ -23,11 +23,13 @@ public sealed class DesktopServices : IAppServices
     private readonly StatisticsStore _statistics;
     private readonly TranslationCache _cache = new();
     private readonly ISelectionMonitor _selection;
+    private readonly ITranslationClipboardWriter _selectionClipboardWriter;
     private readonly Func<string, string, string, CancellationToken, Task<TextTranslation>> _selectionTranslator;
     private readonly TimeSpan _selectionTranslationTimeout = TimeSpan.FromSeconds(20);
     private readonly TimeSpan _selectionValidationTimeout = TimeSpan.FromSeconds(3);
+    private readonly TimeSpan _selectionCopyTimeout = TimeSpan.FromSeconds(2);
     private CancellationTokenSource? _selectionStatusOwner;
-    private readonly Func<SelectionSnapshot, TextTranslation, CancellationToken, Func<bool>, Task> _presentSelection;
+    private readonly Func<SelectionSnapshot, TextTranslation, string, CancellationToken, Func<bool>, Task> _presentSelection;
     private readonly Action<long> _dismissSelection;
     private readonly HotkeyManager _hotkeys;
     private readonly ImeRuntimeController _ime;
@@ -35,6 +37,7 @@ public sealed class DesktopServices : IAppServices
     private readonly object _gate = new();
     private CancellationTokenSource? _selectionRequest;
     private long _selectionRequestVersion;
+    private long _selectionAutoCopyVersion;
     private SelectionResultWindow? _resultWindow;
     private long _resultVersion;
     private string _status = "拼音翻译与划词模式均已关闭。";
@@ -72,10 +75,12 @@ public sealed class DesktopServices : IAppServices
         int? imeTestProcessId = null,
         Func<System.Diagnostics.Process, string, string, ICandidateObserver>? candidateObserverFactory = null,
         ISelectionMonitor? selectionMonitor = null,
-        Func<string, string, string, CancellationToken, Task<TextTranslation>>? selectionTranslator = null)
+        Func<string, string, string, CancellationToken, Task<TextTranslation>>? selectionTranslator = null,
+        ITranslationClipboardWriter? selectionClipboardWriter = null)
     {
         _dispatcher = Application.Current.Dispatcher;
         _selection = selectionMonitor ?? new SelectionMonitor(selectionDiagnostic, OwnClipboardWrites.Contains);
+        _selectionClipboardWriter = selectionClipboardWriter ?? new WindowsTranslationClipboardWriter();
         _presentSelection = PresentSelectionAsync;
         _dismissSelection = QueueSelectionDismissal;
         var persistentDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PinyinTranslate");
@@ -265,6 +270,7 @@ public sealed class DesktopServices : IAppServices
         {
             lock (_gate)
             {
+                if (old.SelectionAutoCopy != settings.SelectionAutoCopy) Interlocked.Increment(ref _selectionAutoCopyVersion);
                 Settings = settings; _shortcutError = null;
                 if (pairChanged)
                 {
@@ -444,7 +450,9 @@ public sealed class DesktopServices : IAppServices
     private async Task TranslateSelectionAsync(SelectionSnapshot snapshot, CancellationTokenSource cts)
     {
         bool started = false, recorded = false;
-        var settings = Settings;
+        AppSettings settings;
+        long autoCopyVersion;
+        lock (_gate) { settings = Settings; autoCopyVersion = _selectionAutoCopyVersion; }
         string languageA = settings.SelectionLanguageA, languageB = settings.SelectionLanguageB;
         CancellationTokenSource? deadline = null;
         var translationTimeout = _selectionTranslationTimeout > TimeSpan.Zero ? _selectionTranslationTimeout : TimeSpan.FromSeconds(20);
@@ -483,11 +491,16 @@ public sealed class DesktopServices : IAppServices
                 SetSelectionStatus(snapshot, cts, "译文已返回，但选区暂时无法确认；本轮已结束，请重新划选。", terminal: true);
                 return;
             }
-            bool Current() => Volatile.Read(ref _disposed) == 0 && !cts.IsCancellationRequested && _selection.IsCurrent(snapshot.Version) &&
+            bool Current() => Volatile.Read(ref _disposed) == 0 && !cts.IsCancellationRequested && SelectionEnabled &&
+                !IsPreparingForUpdate && Volatile.Read(ref _captureSuspendCount) == 0 &&
+                ReferenceEquals(Volatile.Read(ref _selectionRequest), cts) && _selection.IsCurrent(snapshot.Version) &&
                 Settings.SelectionLanguageA == languageA && Settings.SelectionLanguageB == languageB;
             if (!Current()) return;
-            await _presentSelection(snapshot, translated, cts.Token, Current).ConfigureAwait(false);
-            if (Current()) SetSelectionStatus(snapshot, cts, $"{(snapshot.IsCopiedText ? "复制兼容" : "划词")}翻译完成（译为{TranslationLanguages.Get(translated.TargetLanguage).DisplayName}）。点击结果可复制。", terminal: true);
+            string copyFeedback = await CopySelectionTranslationAsync(snapshot, translated.Translation, cts,
+                settings.SelectionAutoCopy, autoCopyVersion, Current).ConfigureAwait(false);
+            if (!Current()) return;
+            await _presentSelection(snapshot, translated, copyFeedback, cts.Token, Current).ConfigureAwait(false);
+            if (Current()) SetSelectionStatus(snapshot, cts, $"{(snapshot.IsCopiedText ? "复制兼容" : "划词")}翻译完成（译为{TranslationLanguages.Get(translated.TargetLanguage).DisplayName}）。{copyFeedback}", terminal: true);
         }
         catch (OperationCanceledException)
         {
@@ -518,6 +531,42 @@ public sealed class DesktopServices : IAppServices
         }
     }
 
+    private async Task<string> CopySelectionTranslationAsync(SelectionSnapshot snapshot, string translation,
+        CancellationTokenSource request, bool enabledAtStart, long settingsVersion, Func<bool> current)
+    {
+        const string manualCopy = "点击译文可复制。";
+        bool Allowed() => enabledAtStart && Settings.SelectionAutoCopy &&
+            Interlocked.Read(ref _selectionAutoCopyVersion) == settingsVersion && current();
+        if (!Allowed()) return manualCopy;
+        SetSelectionStatus(snapshot, request, "译文已返回，正在复制译文…");
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(request.Token);
+        deadline.CancelAfter(_selectionCopyTimeout > TimeSpan.Zero ? _selectionCopyTimeout : TimeSpan.FromSeconds(2));
+        bool CopyCurrent() => !deadline.IsCancellationRequested && Allowed();
+        try
+        {
+            var result = await _selectionClipboardWriter.CopyAsync(translation, CopyCurrent, deadline.Token)
+                .WaitAsync(deadline.Token).ConfigureAwait(false);
+            if (result.Copied)
+            {
+                RecordCopy(translation, false);
+                return "已复制译文，可按 Ctrl+V 粘贴。";
+            }
+            return Allowed() ? "自动复制未完成，点击译文可复制。" : manualCopy;
+        }
+        catch (OperationCanceledException) when (!request.IsCancellationRequested)
+        {
+            return Allowed() ? "自动复制超时，点击译文可复制。" : manualCopy;
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception) { return "自动复制失败，点击译文可复制。"; }
+        finally
+        {
+            // A timed-out or canceled caller must revoke the native worker too;
+            // it rechecks this token and scope before changing the clipboard.
+            _ = DisposeSelectionRequestAsync(deadline);
+        }
+    }
+
     private void SetSelectionStatus(SelectionSnapshot snapshot, CancellationTokenSource request, string message,
         bool claim = false, bool terminal = false)
     {
@@ -538,13 +587,14 @@ public sealed class DesktopServices : IAppServices
         try { await ObserveSelectionCancellationAsync(request.CancelAsync()).ConfigureAwait(false); }
         finally { request.Dispose(); }
     }
-    private async Task PresentSelectionAsync(SelectionSnapshot snapshot, TextTranslation translated, CancellationToken token, Func<bool> current)
+    private async Task PresentSelectionAsync(SelectionSnapshot snapshot, TextTranslation translated, string copyFeedback, CancellationToken token, Func<bool> current)
     {
         await _dispatcher.InvokeAsync(() =>
         {
             if (!current()) return;
             CloseSelectionWindow();
-            _resultWindow = new SelectionResultWindow(snapshot.Text, translated.Translation, RecordCopy, translated.TargetLanguage, snapshot.IsCopiedText);
+            _resultWindow = new SelectionResultWindow(snapshot.Text, translated.Translation, RecordCopy, translated.TargetLanguage, snapshot.IsCopiedText,
+                copyFeedback);
             _resultVersion = snapshot.Version;
             _resultWindow.Show();
         }, DispatcherPriority.Normal, token);
@@ -579,6 +629,6 @@ public sealed class DesktopServices : IAppServices
         _ime.TranslationCopied -= ImeTranslationCopied;
         _ime.CopyPresentationChanged -= ImeCopyPresentationChanged;
         _ime.Dispose(); _imePreview?.Close();
-        _selection.Dispose(); CloseSelectionWindow(); _hotkeys.Dispose(); _cache.Dispose(); _http.Dispose();
+        _selection.Dispose(); _selectionClipboardWriter.Dispose(); CloseSelectionWindow(); _hotkeys.Dispose(); _cache.Dispose(); _http.Dispose();
     }
 }

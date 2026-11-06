@@ -7,7 +7,8 @@ public sealed record AppSettings(string ImeHotkey, string SelectionHotkey, strin
     string ImeTargetLanguage = TranslationLanguages.English,
     string SelectionLanguageA = TranslationLanguages.SimplifiedChinese,
     string SelectionLanguageB = TranslationLanguages.English,
-    string ScreenshotTargetLanguage = TranslationLanguages.SimplifiedChinese)
+    string ScreenshotTargetLanguage = TranslationLanguages.SimplifiedChinese,
+    bool SelectionAutoCopy = true)
 {
     public void ValidateLanguages()
     {

@@ -27,6 +27,34 @@ public sealed class LanguageSettingsTests
         Assert.Equal("en", settings.SelectionLanguageB);
         Assert.Equal("gold", settings.Theme);
         Assert.Equal("Ctrl+Alt+F8", settings.ImeHotkey);
+        Assert.True(settings.SelectionAutoCopy);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AutoCopyPreferencePersistsWithoutChangingLanguagesShortcutsOrNativeServices(bool enabled)
+    {
+        using var fixture = new Fixture();
+        var settings = fixture.Services.Settings with { SelectionAutoCopy = enabled };
+        Assert.Null(await fixture.Services.ApplySettingsAsync(settings));
+        var saved = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(fixture.SettingsPath))!.NormalizeLanguages();
+        Assert.Equal(settings, saved);
+        Assert.Equal(enabled, fixture.Services.Settings.SelectionAutoCopy);
+        Assert.Null(fixture.Get("_hotkeys"));
+        Assert.Equal(0, fixture.Monitor.ResetCount);
+        Assert.Null(fixture.Runtime.Get("_contexts"));
+        Assert.Null(fixture.Runtime.Get("_keyboard"));
+    }
+
+    [Fact]
+    public async Task AFailedPreferenceSaveKeepsThePreviousAutoCopySetting()
+    {
+        using var fixture = new Fixture();
+        fixture.Set("_settingsPath", fixture.DirectoryPath);
+        Assert.NotNull(await fixture.Services.ApplySettingsAsync(fixture.Services.Settings with { SelectionAutoCopy = false }));
+        Assert.True(fixture.Services.Settings.SelectionAutoCopy);
+        Assert.Equal(0, fixture.Monitor.ResetCount);
     }
 
     [Theory]

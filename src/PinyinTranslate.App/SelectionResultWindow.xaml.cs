@@ -6,7 +6,7 @@ using PinyinTranslate.Core;
 
 namespace PinyinTranslate.App;
 
-/// <summary>A nonactivating result panel; text is copied only when a row is clicked.</summary>
+/// <summary>A nonactivating result panel with automatic-copy feedback and clickable copy rows.</summary>
 public partial class SelectionResultWindow : Window
 {
     private readonly Action<string, bool>? _onCopied;
@@ -14,7 +14,7 @@ public partial class SelectionResultWindow : Window
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern IntPtr SetWindowLongPtr64(IntPtr hwnd, int index, IntPtr value);
 
     public SelectionResultWindow(string source, string translation, Action<string, bool>? onCopied = null,
-        string targetLanguage = TranslationLanguages.SimplifiedChinese, bool copiedText = false)
+        string targetLanguage = TranslationLanguages.SimplifiedChinese, bool copiedText = false, string? copyFeedback = null)
     {
         _onCopied = onCopied;
         InitializeComponent();
@@ -22,6 +22,7 @@ public partial class SelectionResultWindow : Window
         OriginalLine.Content = source;
         TranslatedLine.Content = translation;
         TranslationLabel.Text = "译文 · " + TranslationLanguages.Get(targetLanguage).DisplayName;
+        if (copyFeedback is not null) CopyFeedback.Text = copyFeedback;
         SourceInitialized += (_, _) =>
         {
             var handle = new WindowInteropHelper(this).Handle;
