@@ -37,7 +37,7 @@ public sealed class VelopackBackend : IUpdateBackend
     public VelopackBackend() : this(() => new SdkSession()) { }
     internal VelopackBackend(Func<IVelopackUpdateSession> sessionFactory) =>
         this.sessionFactory = sessionFactory ?? throw new ArgumentNullException(nameof(sessionFactory));
-    internal static IUpdateSource CreateSource(IFileDownloader downloader) => new VerifiedGithubSource(downloader);
+    internal static IUpdateSource CreateSource(IFileDownloader downloader) => new LatestGithubUpdateSource(downloader);
     private IVelopackUpdateSession Session { get { lock (gate) return session ??= sessionFactory(); } }
     public bool IsManaged => Session.IsManaged;
     public string CurrentVersion => Session.CurrentVersion;
@@ -146,7 +146,7 @@ public sealed class VelopackBackend : IUpdateBackend
         public SdkSession()
         {
             locator = VelopackLocator.Current;
-            manager = new UpdateManager(new VerifiedGithubSource(new MetadataTimeoutDownloader()), new UpdateOptions
+            manager = new UpdateManager(CreateSource(new UpdateFileDownloader()), new UpdateOptions
                 { ExplicitChannel = VelopackBackend.Channel, AllowVersionDowngrade = false, MaximumDeltasBeforeFallback = -1 }, locator);
         }
         public bool IsManaged => manager.IsInstalled;
@@ -164,25 +164,6 @@ public sealed class VelopackBackend : IUpdateBackend
         }
     }
 
-    private sealed class VerifiedGithubSource(IFileDownloader downloader) : GithubSource(RepositoryUrl, null, false, downloader)
-    {
-        public override async Task<VelopackAssetFeed> GetReleaseFeed(IVelopackLogger logger, string? appId, string channel,
-            Guid? stagingId = null, VelopackAsset? latestLocalRelease = null)
-        {
-            if (appId != PackageId || channel != VelopackBackend.Channel) throw new InvalidDataException("UnexpectedUpdateFeedIdentity");
-            var feed = await base.GetReleaseFeed(logger, appId, channel, stagingId, latestLocalRelease).ConfigureAwait(false);
-            if (feed.Assets.Length == 0) throw new UpdateFeedUnavailableException();
-            foreach (var asset in feed.Assets) ValidateAsset(asset);
-            return feed;
-        }
-    }
-    private sealed class MetadataTimeoutDownloader : HttpClientFileDownloader
-    {
-        public override Task<byte[]> DownloadBytes(string url, IDictionary<string, string>? headers, double timeout) =>
-            base.DownloadBytes(url, headers, Math.Min(timeout, 0.5));
-        public override Task<string> DownloadString(string url, IDictionary<string, string>? headers, double timeout) =>
-            base.DownloadString(url, headers, Math.Min(timeout, 0.5));
-    }
 }
 
 internal sealed class UpdateFeedUnavailableException() : Exception("UpdateFeedNotPublished");

@@ -177,12 +177,39 @@ public sealed class UpdateServiceTests
         progress.Report(70); Assert.Equal(70, service.State.Progress);
         progress.Report(20); Assert.Equal(70, service.State.Progress);
         progress.Report(150); Assert.Equal(100, service.State.Progress);
+        Assert.Contains("正在校验", service.State.Message);
         Assert.False(service.State.CanInstall); // 100% transport progress is not verification success.
         finished.SetResult(); await download;
         Assert.Equal(100, service.State.Progress);
         long revision = service.State.Revision;
         progress!.Report(1000);
         Assert.Equal(revision, service.State.Revision);
+    }
+
+    [Fact]
+    public async Task DownloadProgressShowsTransferSizeBeforeTheSeparateVerificationStage()
+    {
+        var finished = Signal();
+        IProgress<int>? progress = null;
+        var backend = new Backend
+        {
+            Check = _ => Task.FromResult<UpdateRelease?>(new("1.0.5", DownloadBytes: 20 * 1048576)),
+            Download = (_, captured, _) => { progress = captured; return finished.Task; }
+        };
+        using var service = new UpdateService(backend, new Lifecycle());
+        await service.CheckAsync();
+        Task download = service.DownloadAsync();
+        Assert.Contains("正在连接", service.State.Message);
+        progress!.Report(50);
+        Assert.Contains("50%", service.State.Message);
+        Assert.Contains("MB", service.State.Message);
+        Assert.DoesNotContain("校验", service.State.Message);
+        progress.Report(100);
+        Assert.Contains("下载已完成", service.State.Message);
+        Assert.Contains("正在校验", service.State.Message);
+        Assert.False(service.State.CanInstall);
+        finished.SetResult(); await download;
+        Assert.True(service.State.CanInstall);
     }
 
     [Fact]

@@ -159,14 +159,14 @@ public sealed class VelopackBackendTests
     }
 
     [Fact]
-    public async Task RealGithubSourceReadsAnAnonymousStableChannelFeedUsingOnlyTheFakeDownloader()
+    public async Task LatestGithubSourceReadsOneAnonymousStableFeedWithoutListingHistoricalReleases()
     {
         var downloader = new Downloader(Feed(Asset()));
         var source = VelopackBackend.CreateSource(downloader);
         var feed = await source.GetReleaseFeed(new NullVelopackLogger(), VelopackBackend.PackageId, VelopackBackend.Channel);
         Assert.Single(feed.Assets);
         Assert.Equal(VelopackBackend.PackageId, feed.Assets[0].PackageId);
-        Assert.Contains(downloader.Requests, request => request.Url == "https://api.github.com/repos/ihhhhhooo/trans/releases?per_page=10&page=1");
+        Assert.Equal(LatestGithubUpdateSource.FeedUrl, Assert.Single(downloader.Requests).Url);
         Assert.All(downloader.Requests, request => Assert.False(request.HasAuthorization));
         Assert.Equal(0, downloader.FileDownloads);
     }
@@ -339,7 +339,11 @@ public sealed class VelopackBackendTests
             }));
         }
         public Task<byte[]> DownloadBytes(string url, IDictionary<string, string>? headers, double timeout)
-        { Record(url, headers); return Task.FromResult(Encoding.UTF8.GetBytes(feed)); }
+        {
+            Record(url, headers);
+            if (!IncludeFeed) throw new HttpRequestException("Not found", null, System.Net.HttpStatusCode.NotFound);
+            return Task.FromResult(Encoding.UTF8.GetBytes(feed));
+        }
         public Task DownloadFile(string url, string targetFile, Action<int> progress, IDictionary<string, string>? headers,
             double timeout, CancellationToken cancelToken = default)
         { FileDownloads++; throw new InvalidOperationException("No real or fake disk download is permitted in this feed test."); }

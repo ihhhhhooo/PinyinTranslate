@@ -34,7 +34,7 @@
 
 1. 从 [Releases](https://github.com/ihhhhhooo/trans/releases/latest) 下载 `Setup.exe` 安装；也可选择 `Portable.zip` 解压使用。
 2. 打开“设置”，填入自己的 DeepSeek API Key 并保存。
-3. 在主页“翻译语言”中选择语言并保存，再开启所需功能或使用上方快捷键。
+3. 在主页各功能的快捷键旁选择语言，点击“保存设置”，再开启所需功能或使用上方快捷键。
 
 **以后升级：** 设置 → 软件更新 → 检查更新 → 下载更新 → 更新并重启。
 

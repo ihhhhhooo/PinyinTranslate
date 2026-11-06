@@ -51,7 +51,7 @@ $suites = @(
     [pscustomobject]@{
         Directory = 'tests\PinyinTranslate.Update.Tests'
         Project = 'PinyinTranslate.Update.Tests.csproj'
-        Sources = @('UpdateServiceTests.cs', 'VelopackBackendTests.cs')
+        Sources = @('UpdateServiceTests.cs', 'UpdateTransportTests.cs', 'VelopackBackendTests.cs')
         ExcludedTest = $null
     }
 )

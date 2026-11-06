@@ -50,12 +50,12 @@ public partial class MainWindow : Window
             SelectionCheck.IsChecked = _services.SelectionEnabled;
             ImeCheck.IsChecked = _services.ImeEnabled;
             StatusText.Text = _services.Status;
-            ImeShortcut.IsReadOnly = _services.IsPreparingForUpdate;
-            SelectionShortcut.IsReadOnly = _services.IsPreparingForUpdate;
-            ScreenshotShortcut.IsReadOnly = _services.IsPreparingForUpdate;
+            ImeShortcut.IsReadOnly = _savingSettings || _services.IsPreparingForUpdate;
+            SelectionShortcut.IsReadOnly = _savingSettings || _services.IsPreparingForUpdate;
+            ScreenshotShortcut.IsReadOnly = _savingSettings || _services.IsPreparingForUpdate;
             bool canEditLanguages = !_savingSettings && !_services.IsPreparingForUpdate;
             ImeTargetChoice.IsEnabled = SelectionLanguageAChoice.IsEnabled = SelectionLanguageBChoice.IsEnabled =
-                ScreenshotTargetChoice.IsEnabled = SwapLanguagesButton.IsEnabled = SaveLanguagesButton.IsEnabled = canEditLanguages;
+                ScreenshotTargetChoice.IsEnabled = SwapLanguagesButton.IsEnabled = SaveFeatureSettingsButton.IsEnabled = canEditLanguages;
             var settings = _services.Settings;
             string signature = string.Join('|', settings.ImeTargetLanguage, settings.SelectionLanguageA, settings.SelectionLanguageB, settings.ScreenshotTargetLanguage);
             // Status refreshes must not erase unsaved dropdown choices.
@@ -146,7 +146,7 @@ public partial class MainWindow : Window
         Grid.SetRow(FeatureCard, 2);
         Grid.SetColumn(FeatureCard, 0);
         Grid.SetColumnSpan(FeatureCard, 3);
-        Grid.SetRow(HomeFooter, 4);
+        Grid.SetRow(HomeFooter, 3);
         FeatureCard.Margin = comic ? new Thickness(18, 0, 0, 14) : collage ? new Thickness(0, 0, 20, 14) : new Thickness(0, 0, 0, 14);
 
         HomeHeader.MinHeight = pop || comic || gold ? 68 : 52;
@@ -184,20 +184,27 @@ public partial class MainWindow : Window
         RefreshState();
         try
         {
-            var settings = _services.Settings with { ImeHotkey = ImeShortcut.Text.Trim(), SelectionHotkey = SelectionShortcut.Text.Trim(), ScreenshotHotkey = ScreenshotShortcut.Text.Trim() };
+            var settings = _services.Settings with
+            {
+                ImeHotkey = ImeShortcut.Text.Trim(), SelectionHotkey = SelectionShortcut.Text.Trim(), ScreenshotHotkey = ScreenshotShortcut.Text.Trim(),
+                ImeTargetLanguage = ImeTargetChoice.SelectedValue as string ?? "",
+                SelectionLanguageA = SelectionLanguageAChoice.SelectedValue as string ?? "",
+                SelectionLanguageB = SelectionLanguageBChoice.SelectedValue as string ?? "",
+                ScreenshotTargetLanguage = ScreenshotTargetChoice.SelectedValue as string ?? ""
+            };
             var error = await _services.ApplySettingsAsync(settings);
-            ShortcutStatus.Text = error ?? "快捷键已保存";
+            ShortcutStatus.Text = error ?? "快捷键与翻译语言已保存";
             ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, error == null ? "Muted" : "ErrorInk");
         }
-        catch (Exception) { ShortcutStatus.Text = "保存失败，请检查快捷键后重试"; ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk"); }
+        catch (Exception) { ShortcutStatus.Text = "保存失败，请检查快捷键和语言后重试"; ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk"); }
         finally { _savingSettings = false; RefreshState(); }
     }
 
-    private void LanguagesEdited(object sender, SelectionChangedEventArgs e)
+    private void SettingsEdited(object sender, RoutedEventArgs e)
     {
         if (_refreshing || _languageSettingsSignature is null) return;
-        LanguageStatus.Text = "修改语言后点击保存";
-        LanguageStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+        ShortcutStatus.Text = "修改快捷键或语言后点击保存";
+        ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
     }
 
     private void SwapLanguagesClicked(object sender, RoutedEventArgs e)
@@ -206,32 +213,6 @@ public partial class MainWindow : Window
         var a = SelectionLanguageAChoice.SelectedValue;
         SelectionLanguageAChoice.SelectedValue = SelectionLanguageBChoice.SelectedValue;
         SelectionLanguageBChoice.SelectedValue = a;
-    }
-
-    private async void SaveLanguagesClicked(object sender, RoutedEventArgs e)
-    {
-        if (_savingSettings || _services.IsPreparingForUpdate) return;
-        _savingSettings = true;
-        RefreshState();
-        try
-        {
-            var settings = _services.Settings with
-            {
-                ImeTargetLanguage = ImeTargetChoice.SelectedValue as string ?? "",
-                SelectionLanguageA = SelectionLanguageAChoice.SelectedValue as string ?? "",
-                SelectionLanguageB = SelectionLanguageBChoice.SelectedValue as string ?? "",
-                ScreenshotTargetLanguage = ScreenshotTargetChoice.SelectedValue as string ?? ""
-            };
-            var error = await _services.ApplySettingsAsync(settings);
-            LanguageStatus.Text = error ?? "翻译语言已保存";
-            LanguageStatus.SetResourceReference(TextBlock.ForegroundProperty, error is null ? "Muted" : "ErrorInk");
-        }
-        catch (Exception)
-        {
-            LanguageStatus.Text = "保存语言失败，请重试";
-            LanguageStatus.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk");
-        }
-        finally { _savingSettings = false; RefreshState(); }
     }
 
     private bool CanRestartForUpdate() => !_capturing && !_savingSettings &&

@@ -64,7 +64,7 @@ public sealed class UpdateService : IDisposable
             SetStateLocked(phase, release, 0, phase switch
             {
                 UpdatePhase.Checking => "正在检查更新…",
-                UpdatePhase.Downloading => "正在下载并校验更新…",
+                UpdatePhase.Downloading => "正在连接更新源，准备下载…",
                 _ => "正在保存状态并暂停翻译服务…"
             });
         }
@@ -164,7 +164,13 @@ public sealed class UpdateService : IDisposable
         {
             if (!IsCurrentLocked(run) || run.Cancellation.IsCancellationRequested || state.Phase != UpdatePhase.Downloading) return;
             int progress = Math.Max(state.Progress, Math.Clamp(value, 0, 100));
-            if (progress != state.Progress) SetStateLocked(UpdatePhase.Downloading, state.Release, progress, $"正在下载并校验更新… {progress}%");
+            if (progress != state.Progress)
+            {
+                string message = progress >= 100 ? "下载已完成，正在校验更新文件…" : state.Release is { DownloadBytes: > 0 } release
+                    ? $"正在下载更新… {progress}%（约 {release.DownloadBytes / 1048576d * progress / 100:0.0} / {release.DownloadBytes / 1048576d:0.0} MB）"
+                    : $"正在下载更新… {progress}%";
+                SetStateLocked(UpdatePhase.Downloading, state.Release, progress, message);
+            }
         }
     }
     private void SetStateLocked(UpdatePhase phase, UpdateRelease? release, int progress, string message)
@@ -188,9 +194,10 @@ public sealed class UpdateService : IDisposable
     private static string FailureMessage(Exception error, UpdatePhase phase) => error switch
     {
         UpdateFeedUnavailableException => "尚未发布可自动更新的版本，请稍后重试。",
-        HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => "无法读取更新；GitHub 访问受限或请求过于频繁，请稍后重试。",
+        HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden or HttpStatusCode.TooManyRequests } => "无法读取更新；GitHub 访问受限或请求过于频繁，请稍后重试。",
         HttpRequestException { StatusCode: HttpStatusCode.NotFound } => "尚未找到可用的更新发布，请稍后重试。",
         InvalidDataException => "更新文件或发布信息未通过校验，未执行安装。",
+        HttpRequestException { InnerException: TimeoutException } => "更新下载长时间未收到新数据，请检查网络后重试。",
         HttpRequestException => "连接更新服务失败，请检查网络后重试。",
         TimeoutException => "更新请求超时，请稍后重试。",
         _ when phase == UpdatePhase.PreparingRestart => "无法启动更新程序，当前软件仍保持打开，请重试。",

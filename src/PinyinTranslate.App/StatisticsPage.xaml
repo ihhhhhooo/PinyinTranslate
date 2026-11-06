@@ -57,8 +57,7 @@
                         <TextBlock Text="请求次数&#10;输入 / 输出 Token&#10;已记录缓存命中 / 未命中 Token&#10;已记录未分类输入 Token&#10;缺少缓存明细的请求&#10;未返回用量的请求&#10;今日请求 / Token（北京时间）&#10;今日估算费用&#10;历史估算（缺少明细）" Foreground="{DynamicResource Muted}" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
                         <TextBlock x:Name="ApiDetails" Grid.Column="1" Text="—&#10;—&#10;—&#10;—&#10;—&#10;—&#10;—&#10;—&#10;—" TextAlignment="Right" FontWeight="SemiBold" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
                     </Grid>
-                    <TextBlock x:Name="PricingInfo" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,13,0,0"/>
-                    <TextBlock x:Name="PriceExplanation" Text="费用按本机请求发起时间和服务端返回的 Token 用量估算，实际费用以服务商账单为准。" Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                    <TextBlock x:Name="PricingInfo" Text="高峰时段（北京时间）：周一至周五（不含中国法定节假日）09:00–12:00、14:00–18:00。&#10;空闲时段：其余时间，包括周末及中国法定节假日全天。" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,13,0,0"/>
                 </StackPanel>
             </Border>
             <TextBlock x:Name="StatisticsStatus" Text="正在读取统计…" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="1,0,0,0"/>

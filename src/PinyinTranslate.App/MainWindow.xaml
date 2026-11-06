@@ -54,7 +54,7 @@
     <ScrollViewer x:Name="HomeView" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <Grid x:Name="HomeLayout" Margin="30,25,30,30" MaxWidth="840">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="HomeLeft" Width="*"/><ColumnDefinition x:Name="HomeGap" Width="0"/><ColumnDefinition x:Name="HomeRight" Width="0"/></Grid.ColumnDefinitions>
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="HomeHeader" Grid.Row="0" Grid.ColumnSpan="3" Margin="0,0,0,20" MinHeight="52">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                     <Border x:Name="HeaderBackdrop" Grid.ColumnSpan="2" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}"
@@ -101,51 +101,80 @@
                     <Grid>
                     <StackPanel>
                         <TextBlock Text="翻译功能" FontSize="17" FontWeight="Bold"/>
-                        <Grid Margin="0,13,0,0">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/><ColumnDefinition Width="150"/><ColumnDefinition Width="102"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="58"/><RowDefinition Height="1"/><RowDefinition Height="58"/><RowDefinition Height="1"/><RowDefinition Height="58"/></Grid.RowDefinitions>
-                            <TextBlock Grid.Column="1" Text="方式" Foreground="{DynamicResource Muted}" FontSize="11" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="2" Text="快捷键" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,8,0" VerticalAlignment="Center"/>
-                            <TextBlock Grid.Column="3" Text="操作" Foreground="{DynamicResource Muted}" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-
-                            <Border Grid.Row="1" Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeSelection}"><Path Data="{DynamicResource IconSelection}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
-                            <StackPanel Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
-                                <TextBlock Text="划词翻译" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock Text="选择文字后自动翻译" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                        <StackPanel x:Name="SelectionFeatureRow" Margin="0,13,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeSelection}"><Path Data="{DynamicResource IconSelection}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                                    <TextBlock Text="划词翻译" FontSize="14" FontWeight="SemiBold"/>
+                                    <TextBlock Text="选择文字后自动双向翻译" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <CheckBox x:Name="SelectionCheck" Grid.Column="2" Style="{StaticResource ModeSwitch}" VerticalAlignment="Center" AutomationProperties.Name="开启划词双向翻译" ToolTip="开启后，在本行选择的两种语言之间自动互译" Checked="SelectionChanged" Unchecked="SelectionChanged"/>
+                            </Grid>
+                            <WrapPanel Margin="46,10,0,0">
+                                <StackPanel Width="126" Margin="0,0,10,0">
+                                    <TextBlock Text="快捷键" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="SelectionShortcut" TextChanged="SettingsEdited" AutomationProperties.Name="划词翻译快捷键"/>
+                                </StackPanel>
+                                <StackPanel Width="286">
+                                <TextBlock Text="互译语言" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,5"/>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="22"/><ColumnDefinition Width="112"/><ColumnDefinition Width="40"/></Grid.ColumnDefinitions>
+                                    <ComboBox x:Name="SelectionLanguageAChoice" DisplayMemberPath="DisplayName" SelectedValuePath="Code" SelectionChanged="SettingsEdited" AutomationProperties.Name="划词互译左侧语言"/>
+                                    <TextBlock Grid.Column="1" Text="↔" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    <ComboBox x:Name="SelectionLanguageBChoice" Grid.Column="2" DisplayMemberPath="DisplayName" SelectedValuePath="Code" SelectionChanged="SettingsEdited" AutomationProperties.Name="划词互译右侧语言"/>
+                                    <Button x:Name="SwapLanguagesButton" Grid.Column="3" Content="⇄" FontSize="17" Padding="4,5" Margin="6,0,0,0" Click="SwapLanguagesClicked" ToolTip="交换两种语言" AutomationProperties.Name="交换划词互译语言"/>
+                                </Grid>
                             </StackPanel>
-                            <TextBox x:Name="SelectionShortcut" Grid.Row="1" Grid.Column="2" Margin="0,0,8,0" VerticalAlignment="Center" AutomationProperties.Name="划词翻译快捷键"/>
-                            <CheckBox x:Name="SelectionCheck" Grid.Row="1" Grid.Column="3" Style="{StaticResource ModeSwitch}" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                      AutomationProperties.Name="开启划词双向翻译" ToolTip="开启后，在下方选择的两种语言之间自动互译" Checked="SelectionChanged" Unchecked="SelectionChanged"/>
-                            <Border Grid.Row="2" Grid.ColumnSpan="4" Height="1" Background="{DynamicResource Divider}" Opacity="0.35"/>
+                            </WrapPanel>
+                        </StackPanel>
 
-                            <Border Grid.Row="3" Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeScreenshot}"><Path Data="{DynamicResource IconCapture}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
-                            <StackPanel Grid.Row="3" Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
-                                <TextBlock Text="截图翻译" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock Text="框选区域查看双语对照" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <TextBox x:Name="ScreenshotShortcut" Grid.Row="3" Grid.Column="2" Margin="0,0,8,0" VerticalAlignment="Center" AutomationProperties.Name="截图翻译快捷键"/>
-                            <Button Grid.Row="3" Grid.Column="3" Content="开始截图" Click="CaptureClicked" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                    Background="{DynamicResource PrimaryBackground}" BorderBrush="{DynamicResource ButtonBorder}" Foreground="{DynamicResource PrimaryInk}" FontWeight="SemiBold"/>
-                            <Border Grid.Row="4" Grid.ColumnSpan="4" Height="1" Background="{DynamicResource Divider}" Opacity="0.35"/>
+                        <Border Height="1" Background="{DynamicResource Divider}" Opacity="0.35" Margin="0,14,0,0"/>
+                        <StackPanel x:Name="ScreenshotFeatureRow" Margin="0,13,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeScreenshot}"><Path Data="{DynamicResource IconCapture}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                                    <TextBlock Text="截图翻译" FontSize="14" FontWeight="SemiBold"/>
+                                    <TextBlock Text="框选区域查看原文与译文对照" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <Button Grid.Column="2" Content="开始截图" Click="CaptureClicked" VerticalAlignment="Center" Background="{DynamicResource PrimaryBackground}" BorderBrush="{DynamicResource ButtonBorder}" Foreground="{DynamicResource PrimaryInk}" FontWeight="SemiBold"/>
+                            </Grid>
+                            <WrapPanel Margin="46,10,0,0">
+                                <StackPanel Width="126" Margin="0,0,10,0">
+                                    <TextBlock Text="快捷键" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="ScreenshotShortcut" TextChanged="SettingsEdited" AutomationProperties.Name="截图翻译快捷键"/>
+                                </StackPanel>
+                                <StackPanel Width="200"><TextBlock Text="译为" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,5"/><ComboBox x:Name="ScreenshotTargetChoice" DisplayMemberPath="DisplayName" SelectedValuePath="Code" SelectionChanged="SettingsEdited" AutomationProperties.Name="截图翻译目标语言"/></StackPanel>
+                            </WrapPanel>
+                        </StackPanel>
 
-                            <Border Grid.Row="5" Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeIme}"><Path Data="{DynamicResource IconIme}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
-                            <StackPanel Grid.Row="5" Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
-                                <TextBlock Text="微软拼音翻译" FontSize="14" FontWeight="SemiBold"/>
-                                <TextBlock Text="自动翻译并复制 · Esc 后 Ctrl+V" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0"/>
-                            </StackPanel>
-                            <TextBox x:Name="ImeShortcut" Grid.Row="5" Grid.Column="2" Margin="0,0,8,0" VerticalAlignment="Center" AutomationProperties.Name="拼音翻译快捷键"/>
-                            <CheckBox x:Name="ImeCheck" Grid.Row="5" Grid.Column="3" Style="{StaticResource ModeSwitch}"
-                                      Checked="ImeChanged" Unchecked="ImeChanged" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                      AutomationProperties.Name="拼音翻译模式开关"/>
-                        </Grid>
-                        <DockPanel Margin="0,13,0,0" LastChildFill="True">
-                            <Button DockPanel.Dock="Right" Content="保存快捷键" Click="SaveSettingsClicked"/>
-                            <TextBlock x:Name="ShortcutStatus" Text="修改快捷键后点击保存" Foreground="{DynamicResource Muted}"
-                                       VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0" FontSize="12"/>
+                        <Border Height="1" Background="{DynamicResource Divider}" Opacity="0.35" Margin="0,14,0,0"/>
+                        <StackPanel x:Name="ImeFeatureRow" Margin="0,13,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="46"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeIme}"><Path Data="{DynamicResource IconIme}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
+                                    <TextBlock Text="微软拼音翻译" FontSize="14" FontWeight="SemiBold"/>
+                                    <TextBlock Text="自动翻译并复制 · Esc 后 Ctrl+V" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <CheckBox x:Name="ImeCheck" Grid.Column="2" Style="{StaticResource ModeSwitch}" Checked="ImeChanged" Unchecked="ImeChanged" VerticalAlignment="Center" AutomationProperties.Name="拼音翻译模式开关"/>
+                            </Grid>
+                            <WrapPanel Margin="46,10,0,0">
+                                <StackPanel Width="126" Margin="0,0,10,0">
+                                    <TextBlock Text="快捷键" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,5"/>
+                                    <TextBox x:Name="ImeShortcut" TextChanged="SettingsEdited" AutomationProperties.Name="拼音翻译快捷键"/>
+                                </StackPanel>
+                                <StackPanel Width="200"><TextBlock Text="译为" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,0,0,5"/><ComboBox x:Name="ImeTargetChoice" DisplayMemberPath="DisplayName" SelectedValuePath="Code" SelectionChanged="SettingsEdited" AutomationProperties.Name="输入翻译目标语言"/></StackPanel>
+                            </WrapPanel>
+                        </StackPanel>
+
+                        <DockPanel Margin="0,18,0,0">
+                            <Button x:Name="SaveFeatureSettingsButton" DockPanel.Dock="Right" Content="保存设置" Click="SaveSettingsClicked"/>
+                            <TextBlock x:Name="ShortcutStatus" Text="修改快捷键或语言后点击保存" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="0,0,12,0" FontSize="12"/>
                         </DockPanel>
                     </StackPanel>
-                    <Border Width="54" Height="12" Background="{DynamicResource PaperTape}" HorizontalAlignment="Right" VerticalAlignment="Top"
-                            Margin="0,-23,18,0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
+                    <Border Width="54" Height="12" Background="{DynamicResource PaperTape}" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-23,18,0" IsHitTestVisible="False" RenderTransformOrigin="0.5,0.5">
                         <Border.RenderTransform><RotateTransform Angle="-7"/></Border.RenderTransform>
                     </Border>
                     <Grid x:Name="ComicSticker" Width="39" Height="32" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-8,0,0" IsHitTestVisible="False" Visibility="Collapsed">
@@ -155,36 +184,7 @@
                     </Grid>
                 </Border>
 
-                <Border x:Name="LanguageCard" Grid.Row="3" Grid.ColumnSpan="3" Style="{StaticResource Card}" Margin="0,0,0,14">
-                    <StackPanel>
-                        <TextBlock Text="翻译语言" FontSize="17" FontWeight="Bold"/>
-                        <TextBlock Text="10 种语言 · 中文区分简体与繁体" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,4,0,12"/>
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="76"/><ColumnDefinition Width="*"/><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/><ColumnDefinition Width="62"/></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                            <TextBlock Text="输入译为" FontSize="12" VerticalAlignment="Center"/>
-                            <ComboBox x:Name="ImeTargetChoice" Grid.Column="1" Grid.ColumnSpan="3" Margin="0,0,0,9" DisplayMemberPath="DisplayName" SelectedValuePath="Code"
-                                      SelectionChanged="LanguagesEdited" AutomationProperties.Name="输入翻译目标语言"/>
-                            <TextBlock Grid.Row="1" Text="划词互译" FontSize="12" VerticalAlignment="Center" Margin="0,0,0,9"/>
-                            <ComboBox x:Name="SelectionLanguageAChoice" Grid.Row="1" Grid.Column="1" Margin="0,0,0,9" DisplayMemberPath="DisplayName" SelectedValuePath="Code"
-                                      SelectionChanged="LanguagesEdited" AutomationProperties.Name="划词互译左侧语言"/>
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="↔" FontSize="17" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,0,0,9"/>
-                            <ComboBox x:Name="SelectionLanguageBChoice" Grid.Row="1" Grid.Column="3" Margin="0,0,0,9" DisplayMemberPath="DisplayName" SelectedValuePath="Code"
-                                      SelectionChanged="LanguagesEdited" AutomationProperties.Name="划词互译右侧语言"/>
-                            <Button x:Name="SwapLanguagesButton" Grid.Row="1" Grid.Column="4" Content="交换" Margin="7,0,0,9" Padding="5,5" Click="SwapLanguagesClicked" AutomationProperties.Name="交换划词互译语言"/>
-                            <TextBlock Grid.Row="2" Text="截图译为" FontSize="12" VerticalAlignment="Center"/>
-                            <ComboBox x:Name="ScreenshotTargetChoice" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="3" DisplayMemberPath="DisplayName" SelectedValuePath="Code"
-                                      SelectionChanged="LanguagesEdited" AutomationProperties.Name="截图翻译目标语言"/>
-                        </Grid>
-                        <TextBlock Text="原文由模型自动识别。划词在所选两种语言间互译；其他语种或无法确定时，译为左侧语言。简繁互译时，无法区分的文字默认转为右侧。"
-                                   Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,11,0,0"/>
-                        <DockPanel Margin="0,12,0,0">
-                            <Button x:Name="SaveLanguagesButton" DockPanel.Dock="Right" Content="保存语言" Click="SaveLanguagesClicked"/>
-                            <TextBlock x:Name="LanguageStatus" Text="修改语言后点击保存" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"/>
-                        </DockPanel>
-                    </StackPanel>
-                </Border>
-                <TextBlock x:Name="HomeFooter" Grid.Row="4" Grid.ColumnSpan="3" Text="关闭窗口将退出程序" Foreground="{DynamicResource Muted}" FontSize="11" Margin="2,0,0,0"/>
+                <TextBlock x:Name="HomeFooter" Grid.Row="3" Grid.ColumnSpan="3" Text="关闭窗口将退出程序" Foreground="{DynamicResource Muted}" FontSize="11" Margin="2,0,0,0"/>
         </Grid>
     </ScrollViewer>
     <ContentControl x:Name="SettingsHost" Visibility="Collapsed"/>
