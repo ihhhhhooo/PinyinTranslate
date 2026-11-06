@@ -144,15 +144,14 @@ try {
         # Keep that static check. No app, installer or updater is executed here.
         $packArguments = @('vpk', '--skip-updates', 'pack', '--packId', $packId, '--packTitle', 'PinyinTranslate',
             '--packVersion', $properties.Version, '--packDir', $stageDir, '--mainExe', 'PinyinTranslate.App.exe',
-            '--runtime', 'win-x64', '--channel', $channel, '--delta', 'None', '--noInst', '--outputDir', $stageRelease,
+            '--runtime', 'win-x64', '--channel', $channel, '--delta', 'None', '--outputDir', $stageRelease,
             '--releaseNotes', (Join-Path $projectRoot 'RELEASE-NOTES.md'))
         & dotnet @packArguments
         if ($LASTEXITCODE -ne 0) { throw 'Velopack packaging failed.' }
-        $requiredAssets = @("$packId-$($properties.Version)-$channel-full.nupkg", "$packId-$channel-Portable.zip", "releases.$channel.json", "assets.$channel.json")
+        $requiredAssets = @("$packId-$($properties.Version)-$channel-full.nupkg", "$packId-$channel-Portable.zip", "$packId-$channel-Setup.exe", "releases.$channel.json", "assets.$channel.json")
         foreach ($name in $requiredAssets) {
             if (-not (Test-Path -LiteralPath (Join-Path $stageRelease $name) -PathType Leaf)) { throw "Missing Velopack asset: $name." }
         }
-        if (@(Get-ChildItem -LiteralPath $stageRelease -File -Filter '*-Setup.exe').Count -gt 0) { throw 'The portable-only release unexpectedly contains an installer.' }
         $after = Get-SourceState
         if ($after.Commit -cne $source.Commit) { throw 'The source commit changed while packaging.' }
         $files = @(Get-ChildItem -LiteralPath $stageRelease -File | Sort-Object Name | ForEach-Object {

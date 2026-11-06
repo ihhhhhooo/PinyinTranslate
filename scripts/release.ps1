@@ -57,14 +57,36 @@ function Assert-RegularFile([string] $path) {
     if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw "Not a regular release file: $($file.Name)." }
 }
 
+function Assert-SetupPayload([string] $path, [long] $packageLength, [string] $packageHash) {
+    # The pinned, unsigned Velopack Setup appends the full nupkg at EOF.
+    # Hash its embedded payload without launching or extracting the installer.
+    $stream = [IO.File]::OpenRead($path)
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        if ($stream.Length -le $packageLength -or $stream.ReadByte() -ne 0x4d -or $stream.ReadByte() -ne 0x5a) {
+            throw 'Setup is not a bundled Windows executable.'
+        }
+        $null = $stream.Seek(-$packageLength, [IO.SeekOrigin]::End)
+        if ([Convert]::ToHexString($sha256.ComputeHash($stream)) -ine $packageHash) {
+            throw 'The installer does not contain the verified full update package.'
+        }
+    }
+    finally { $sha256.Dispose(); $stream.Dispose() }
+    $versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($path)
+    if ($versionInfo.ProductVersion -cnotin @($properties.Version, ($properties.Version + '.0'))) {
+        throw 'The installer product version does not match the release.'
+    }
+}
+
 function Assert-ReleaseBundle([string] $directory, [string] $commit) {
     $folder = Get-Item -LiteralPath $directory -Force
     if (-not $folder.PSIsContainer -or ($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'PackagedDir must be a regular directory.' }
     $fullName = "$packId-$($properties.Version)-$channel-full.nupkg"
     $portableName = "$packId-$channel-Portable.zip"
+    $setupName = "$packId-$channel-Setup.exe"
     $feedName = "releases.$channel.json"
     $assetName = "assets.$channel.json"
-    $required = @($fullName, $portableName, $feedName, $assetName)
+    $required = @($fullName, $portableName, $setupName, $feedName, $assetName)
     $allowed = @($required) + @("RELEASES-$channel", 'release-manifest.json', 'SHA256SUMS')
     $actualFiles = @(Get-ChildItem -LiteralPath $directory -Force)
     foreach ($file in $actualFiles) {
@@ -114,10 +136,12 @@ function Assert-ReleaseBundle([string] $directory, [string] $commit) {
     if ($entry.PackageId -cne $packId -or [string]$entry.Version -cne $properties.Version -or [string]$entry.Type -notin @('Full', '1') -or
         $entry.FileName -cne $fullName -or $entry.SHA256 -ine $hashes[$fullName] -or $entry.Size -ne $lengths[$fullName]) { throw 'The update feed does not match the verified full package.' }
     $assets = @(Get-Content -LiteralPath (Join-Path $directory $assetName) -Raw | ConvertFrom-Json)
-    if ($assets.Count -ne 2 -or @($assets | Where-Object { $_.RelativeFileName -ceq $fullName -and [string]$_.Type -in @('Full', '1') }).Count -ne 1 -or
-        @($assets | Where-Object { $_.RelativeFileName -ceq $portableName -and [string]$_.Type -in @('Portable', '3') }).Count -ne 1) {
-        throw 'The vpk assets manifest must contain only the verified full package and portable ZIP.'
+    if ($assets.Count -ne 3 -or @($assets | Where-Object { $_.RelativeFileName -ceq $fullName -and [string]$_.Type -in @('Full', '1') }).Count -ne 1 -or
+        @($assets | Where-Object { $_.RelativeFileName -ceq $portableName -and [string]$_.Type -in @('Portable', '3') }).Count -ne 1 -or
+        @($assets | Where-Object { $_.RelativeFileName -ceq $setupName -and [string]$_.Type -cEQ 'Installer' }).Count -ne 1) {
+        throw 'The vpk assets manifest must contain only the verified full package, portable ZIP and EXE installer.'
     }
+    Assert-SetupPayload (Join-Path $directory $setupName) $lengths[$fullName] $hashes[$fullName]
 
     # Inspect archive entries only; never run the root launcher, app or updater.
     $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $directory $portableName))
@@ -137,7 +161,7 @@ function Assert-ReleaseBundle([string] $directory, [string] $commit) {
         }
     }
     finally { $zip.Dispose() }
-    return [pscustomobject]@{ Files = @($records.Name); FeedName = $feedName; BuildFiles = @($fullName, $portableName) }
+    return [pscustomobject]@{ Files = @($records.Name); FeedName = $feedName; BuildFiles = @($fullName, $portableName, $setupName) }
 }
 
 function Invoke-GitHub([string[]] $Arguments, [string] $InputText) {

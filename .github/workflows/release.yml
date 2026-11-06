@@ -1,4 +1,4 @@
-name: Windows portable release
+name: Windows release
 
 on:
   push:
@@ -50,7 +50,7 @@ jobs:
       - name: Run only the reviewed headless test inventory
         run: ./scripts/test.ps1 -HeadlessOnly
 
-      - name: Build the self-contained portable release
+      - name: Build the self-contained installer and portable release
         env:
           OUTPUT_NAME: ${{ steps.version.outputs.output_name }}
         run: ./scripts/package.ps1 -Velopack -OutputName $env:OUTPUT_NAME

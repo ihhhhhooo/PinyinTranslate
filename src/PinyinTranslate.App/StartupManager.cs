@@ -1,6 +1,8 @@
 using System.IO;
 using System.Reflection;
 using Microsoft.Win32;
+using PinyinTranslate.Update;
+using Velopack.Locators;
 
 namespace PinyinTranslate.App;
 
@@ -37,11 +39,11 @@ internal static class StartupManager
         key.SetValue(ValueName, command, RegistryValueKind.String);
     }
 
-    public static void RefreshEnabledForCurrentPortable()
+    public static void RefreshEnabledForCurrentVersion()
     {
+        if (!HasManagedIdentity()) return;
         string program = Environment.ProcessPath ?? "";
-        string launcher = StartupCommandPolicy.FindPortableLauncher(program, File.Exists);
-        if (launcher == program) return;
+        if (!Path.IsPathFullyQualified(program)) return;
         using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
         if (key?.GetValue(ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is not string previous) return;
         string current = CurrentCommand();
@@ -62,7 +64,14 @@ internal static class StartupManager
                 throw new InvalidOperationException("无法取得应用程序路径。");
             return Quote(program) + " " + Quote(dll);
         }
-        return Quote(StartupCommandPolicy.FindPortableLauncher(program, File.Exists));
+        return Quote(StartupCommandPolicy.FindManagedLauncher(program, HasManagedIdentity(), File.Exists));
+    }
+
+    private static bool HasManagedIdentity()
+    {
+        var locator = VelopackLocator.Current;
+        return locator.AppId == VelopackBackend.PackageId && locator.Channel == VelopackBackend.Channel &&
+               locator.CurrentlyInstalledVersion != null;
     }
 
     private static string Quote(string path) => "\"" + path + "\"";
@@ -71,15 +80,15 @@ internal static class StartupManager
 /// <summary>Pure path/command policy; never touches the registry or launches a process.</summary>
 internal static class StartupCommandPolicy
 {
-    public static string FindPortableLauncher(string program, Func<string, bool> fileExists)
+    public static string FindManagedLauncher(string program, bool managed, Func<string, bool> fileExists)
     {
-        if (!Path.IsPathFullyQualified(program) || !string.Equals(Path.GetFileName(program), "PinyinTranslate.App.exe", StringComparison.OrdinalIgnoreCase)) return program;
+        if (!managed || !Path.IsPathFullyQualified(program) || !string.Equals(Path.GetFileName(program), "PinyinTranslate.App.exe", StringComparison.OrdinalIgnoreCase)) return program;
         var directory = Path.GetDirectoryName(program);
         if (!string.Equals(Path.GetFileName(directory), "current", StringComparison.OrdinalIgnoreCase)) return program;
         var root = Path.GetDirectoryName(directory);
         if (string.IsNullOrWhiteSpace(root)) return program;
         string launcher = Path.Combine(root, "PinyinTranslate.exe");
-        return fileExists(Path.Combine(root, ".portable")) && fileExists(launcher) ? launcher : program;
+        return fileExists(Path.Combine(root, "Update.exe")) && fileExists(launcher) ? launcher : program;
     }
 
     public static bool ShouldRelocate(string? previousCommand, string currentCommand)

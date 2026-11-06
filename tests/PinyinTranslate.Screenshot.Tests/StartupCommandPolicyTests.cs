@@ -5,16 +5,24 @@ namespace PinyinTranslate.Screenshot.Tests;
 public sealed class StartupCommandPolicyTests
 {
     [Fact]
-    public void PortableStartupUsesRootLauncherOnlyWhenBothCompanionFilesExist()
+    public void BothManagedDistributionsUseRootLauncherOnlyWithCompanionFiles()
     {
         const string program = @"C:\Apps\Translator\current\PinyinTranslate.App.exe";
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            @"C:\Apps\Translator\.portable", @"C:\Apps\Translator\PinyinTranslate.exe"
+            @"C:\Apps\Translator\Update.exe", @"C:\Apps\Translator\PinyinTranslate.exe"
         };
-        Assert.Equal(@"C:\Apps\Translator\PinyinTranslate.exe", StartupCommandPolicy.FindPortableLauncher(program, files.Contains));
-        files.Remove(@"C:\Apps\Translator\.portable");
-        Assert.Equal(program, StartupCommandPolicy.FindPortableLauncher(program, files.Contains));
+        // No .portable marker: the installed variant must also use its root stub.
+        Assert.Equal(@"C:\Apps\Translator\PinyinTranslate.exe", StartupCommandPolicy.FindManagedLauncher(program, true, files.Contains));
+        files.Remove(@"C:\Apps\Translator\Update.exe");
+        Assert.Equal(program, StartupCommandPolicy.FindManagedLauncher(program, true, files.Contains));
+    }
+
+    [Fact]
+    public void AnUnmanagedDirectoryNeverChangesItsExecutableEvenWithLookalikeFiles()
+    {
+        const string program = @"C:\Apps\Translator\current\PinyinTranslate.App.exe";
+        Assert.Equal(program, StartupCommandPolicy.FindManagedLauncher(program, false, _ => true));
     }
 
     [Theory]

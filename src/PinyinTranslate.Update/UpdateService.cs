@@ -37,7 +37,7 @@ public sealed class UpdateService : IDisposable
         _ = Task.Run(DrainNoticesAsync);
     }
 
-    public const string MigrationMessage = "当前是普通解压版，尚不能自动更新。请从项目发布页下载新版便携包并解压一次；现有设置会保留。";
+    public const string MigrationMessage = "当前是普通解压版，尚不能自动更新。请从项目发布页下载安装版，或下载新版便携包并解压一次；现有设置会保留。";
     public Task CheckAsync(CancellationToken cancellationToken = default) => Start(UpdatePhase.Checking, cancellationToken);
     public Task DownloadAsync(CancellationToken cancellationToken = default) => Start(UpdatePhase.Downloading, cancellationToken);
     public Task InstallAsync(CancellationToken cancellationToken = default) => Start(UpdatePhase.PreparingRestart, cancellationToken);

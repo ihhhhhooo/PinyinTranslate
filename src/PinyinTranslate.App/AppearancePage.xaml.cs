@@ -58,7 +58,7 @@ public partial class AppearancePage : UserControl, IDisposable
         catch (Exception)
         {
             UpdateVersionText.Text = "当前版本 " + typeof(App).Assembly.GetName().Version?.ToString(3);
-            UpdateStatusText.Text = "无法初始化更新服务，可从发布页下载完整便携包。";
+            UpdateStatusText.Text = "无法初始化更新服务，可从发布页下载安装版或完整便携包。";
         }
     }
 
