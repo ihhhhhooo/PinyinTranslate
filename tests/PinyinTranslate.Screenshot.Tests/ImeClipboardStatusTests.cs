@@ -15,10 +15,10 @@ public sealed class ImeClipboardStatusTests
     {
         using var runtime = new HeadlessRuntimeFixture(copyOnly: true);
         var services = Services(runtime);
-        Invoke(services, "SetStatus", "已复制英文；旧一轮成功提示");
+        Invoke(services, "SetStatus", "已复制译文；旧一轮成功提示");
         // Simulate delivery after mode invalidation, without making any copy.
         Invoke(services, "ImeCopyPresentationChanged");
-        Assert.DoesNotContain("已复制英文", services.Status);
+        Assert.DoesNotContain("已复制译文", services.Status);
         Assert.Contains("已关闭", services.Status);
     }
 
@@ -28,9 +28,9 @@ public sealed class ImeClipboardStatusTests
         using var runtime = new HeadlessRuntimeFixture(copyOnly: true);
         runtime.Enable();
         var services = Services(runtime);
-        Invoke(services, "SetStatus", "已复制英文；旧一轮成功提示");
+        Invoke(services, "SetStatus", "已复制译文；旧一轮成功提示");
         Invoke(services, "ImeCopyPresentationChanged");
-        Assert.DoesNotContain("已复制英文", services.Status);
+        Assert.DoesNotContain("已复制译文", services.Status);
         Assert.Contains("等待微软拼音候选", services.Status);
     }
 

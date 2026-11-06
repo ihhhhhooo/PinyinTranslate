@@ -40,7 +40,7 @@
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
                         <WrapPanel>
-                            <TextBlock Text="双语对照" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="TranslationLabel" Text="双语对照" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
                             <TextBlock Text="字号" Foreground="{DynamicResource Muted}" FontSize="12" Margin="20,0,0,0" VerticalAlignment="Center"/>
                             <Slider x:Name="FontSizeSlider" Minimum="12" Maximum="28" Value="16" Width="100" Margin="9,0,0,0" VerticalAlignment="Center"/>
                         </WrapPanel>

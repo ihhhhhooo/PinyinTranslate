@@ -1,10 +1,38 @@
 using System.Collections.ObjectModel;
+using PinyinTranslate.Core;
 
 namespace PinyinTranslate.App;
 
-public sealed record AppSettings(string ImeHotkey, string SelectionHotkey, string ScreenshotHotkey, string Theme = "light");
+public sealed record AppSettings(string ImeHotkey, string SelectionHotkey, string ScreenshotHotkey, string Theme = "light",
+    string ImeTargetLanguage = TranslationLanguages.English,
+    string SelectionLanguageA = TranslationLanguages.SimplifiedChinese,
+    string SelectionLanguageB = TranslationLanguages.English,
+    string ScreenshotTargetLanguage = TranslationLanguages.SimplifiedChinese)
+{
+    public void ValidateLanguages()
+    {
+        _ = TranslationLanguages.Get(ImeTargetLanguage);
+        _ = TranslationLanguages.Get(ScreenshotTargetLanguage);
+        TranslationLanguages.ValidatePair(SelectionLanguageA, SelectionLanguageB);
+    }
+
+    // Old settings have no language fields. Invalid/newer identifiers never reach prompts or caches.
+    public AppSettings NormalizeLanguages()
+    {
+        string a = TranslationLanguages.IsSupported(SelectionLanguageA) ? SelectionLanguageA : TranslationLanguages.SimplifiedChinese;
+        string b = TranslationLanguages.IsSupported(SelectionLanguageB) ? SelectionLanguageB : TranslationLanguages.English;
+        if (a == b) { a = TranslationLanguages.SimplifiedChinese; b = TranslationLanguages.English; }
+        return this with
+        {
+            ImeTargetLanguage = TranslationLanguages.IsSupported(ImeTargetLanguage) ? ImeTargetLanguage : TranslationLanguages.English,
+            SelectionLanguageA = a, SelectionLanguageB = b,
+            ScreenshotTargetLanguage = TranslationLanguages.IsSupported(ScreenshotTargetLanguage) ? ScreenshotTargetLanguage : TranslationLanguages.SimplifiedChinese
+        };
+    }
+}
 public sealed record ScreenshotItem(string Id, string Original, string Translation, bool Uncertain = false);
-public sealed record ScreenshotResult(IReadOnlyList<ScreenshotItem> Items, bool IsComplete, string? Warning);
+public sealed record ScreenshotResult(IReadOnlyList<ScreenshotItem> Items, bool IsComplete, string? Warning,
+    string TargetLanguage = TranslationLanguages.SimplifiedChinese);
 
 /// <summary>UI boundary. Implementations must invalidate outstanding operations when a mode is disabled.</summary>
 public interface IAppServices : IDisposable

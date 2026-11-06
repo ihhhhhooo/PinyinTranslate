@@ -180,7 +180,7 @@ public partial class AppearancePage : UserControl, IDisposable
         }
         if (!_canRestart())
         {
-            UpdateStatusText.Text = "请先完成截图并保存修改过的快捷键，再更新并重启。";
+            UpdateStatusText.Text = "请先完成截图，并保存修改过的快捷键和翻译语言，再更新并重启。";
             return;
         }
         if (_updates != null) await _updates.InstallAsync();

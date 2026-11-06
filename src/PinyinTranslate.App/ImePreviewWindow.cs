@@ -15,7 +15,7 @@ internal sealed class ImePreviewWindow : Window
     private bool _positioning;
     public ImePreviewWindow()
     {
-        Title = "微软拼音英文预览";
+        Title = "微软拼音翻译预览";
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false; ShowActivated = false; Focusable = false; Topmost = true;
         SizeToContent = SizeToContent.WidthAndHeight; MinWidth = 180; MaxWidth = 510;
@@ -44,7 +44,7 @@ internal sealed class ImePreviewWindow : Window
         _translation.Text = state.Translation ?? (state.Error is null ? "正在翻译…" : "翻译失败");
         _hint.Text = !string.IsNullOrWhiteSpace(copyHint) ? copyHint :
             state.Error is not null ? "翻译失败，请查看主窗口提示" : state.Translation is null
-                ? "正在翻译，输入变化会取消本轮请求" : "正在复制英文…";
+                ? "正在翻译，输入变化会取消本轮请求" : "正在复制译文…";
         if (!IsVisible) Show();
         UpdateLayout(); Position();
     }

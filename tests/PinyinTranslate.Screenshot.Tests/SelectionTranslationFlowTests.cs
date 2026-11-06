@@ -128,13 +128,15 @@ public sealed class SelectionTranslationFlowTests
     [InlineData("請翻譯這段文字", false)]
     [InlineData("Selected English text", true)]
     [InlineData("我使用 DeepSeek API 翻译", false)]
-    public async Task TheAppPassesTheResolvedTargetToTheTranslator(string text, bool targetChinese)
+    public async Task TheAppPassesTheSelectedPairAndUsesTheProviderReportedTarget(string text, bool targetChinese)
     {
         using var fixture = new Fixture();
+        fixture.Target = targetChinese ? TranslationLanguages.SimplifiedChinese : TranslationLanguages.English;
         await fixture.Run(Snapshot(1, text));
-        Assert.Equal(targetChinese, Assert.Single(fixture.Targets));
+        Assert.Equal((TranslationLanguages.SimplifiedChinese, TranslationLanguages.English), Assert.Single(fixture.Pairs));
         Assert.Single(fixture.Shown);
-        Assert.Contains(targetChinese ? "英 → 中" : "中 → 英", fixture.Services.Status);
+        Assert.Equal(fixture.Target, Assert.Single(fixture.ShownTargets));
+        Assert.Contains(TranslationLanguages.Get(fixture.Target).DisplayName, fixture.Services.Status);
     }
 
     [Fact]
@@ -146,6 +148,7 @@ public sealed class SelectionTranslationFlowTests
         await cache.GetOrTranslateAsync(DeepSeekClient.Model, "en-zh", "selection-v2", source,
             _ => Task.FromResult("错误方向的旧缓存"));
         fixture.Translate = (_, _) => Task.FromResult("English translation");
+        fixture.Target = TranslationLanguages.English;
         await fixture.Run(Snapshot(1, source));
         await fixture.Run(Snapshot(2, source));
         Assert.Single(fixture.Translated);
@@ -246,6 +249,97 @@ public sealed class SelectionTranslationFlowTests
         finally { release.TrySetResult(true); }
     }
 
+    [Theory]
+    [InlineData("en", "ko", "ko", "Hello")]
+    [InlineData("en", "ko", "en", "안녕하세요")]
+    [InlineData("fr", "de", "de", "Bonjour")]
+    [InlineData("ja", "vi", "vi", "こんにちは")]
+    [InlineData("zh-Hans", "zh-Hant", "zh-Hant", "软件翻译")]
+    public async Task AnySelectedPairReachesTheProviderAndTheActualTargetReachesPresentation(string a, string b, string target, string source)
+    {
+        using var fixture = new Fixture();
+        fixture.ChangePair(a, b);
+        fixture.Target = target;
+        await fixture.Run(Snapshot(10, source));
+        Assert.Equal((a, b), Assert.Single(fixture.Pairs));
+        Assert.Equal(source, Assert.Single(fixture.Translated));
+        Assert.Equal(target, Assert.Single(fixture.ShownTargets));
+        Assert.Contains(TranslationLanguages.Get(target).DisplayName, fixture.Services.Status);
+    }
+
+    [Fact]
+    public async Task PairAndChineseScriptChangesCannotReuseEachOthersCacheEntries()
+    {
+        using var fixture = new Fixture();
+        const string source = "Same selected text";
+        fixture.Translate = (_, _) => Task.FromResult("软件");
+        await fixture.Run(Snapshot(1, source));
+        fixture.ChangePair("zh-Hant", "en");
+        fixture.Target = "zh-Hant";
+        fixture.Translate = (_, _) => Task.FromResult("軟體");
+        await fixture.Run(Snapshot(2, source));
+        fixture.ChangePair("zh-Hans", "en");
+        fixture.Target = "zh-Hans";
+        fixture.Translate = (_, _) => throw new Exception("The original pair should use its cache");
+        await fixture.Run(Snapshot(3, source));
+        Assert.Equal(2, fixture.Translated.Count);
+        Assert.Equal(new[] { "软件", "軟體", "软件" }, fixture.Shown.Select(x => x.Translation));
+        Assert.Equal(new[] { "zh-Hans", "zh-Hant", "zh-Hans" }, fixture.ShownTargets);
+    }
+
+    [Fact]
+    public async Task ReversingThePairUsesADifferentCacheBecauseTheFallbackLanguageChanges()
+    {
+        using var fixture = new Fixture();
+        fixture.Target = "en";
+        await fixture.Run(Snapshot(1, "Ambiguous source"));
+        fixture.ChangePair("en", "zh-Hans");
+        await fixture.Run(Snapshot(2, "Ambiguous source"));
+        Assert.Equal(2, fixture.Translated.Count);
+        Assert.Equal(new[] { ("zh-Hans", "en"), ("en", "zh-Hans") }, fixture.Pairs);
+    }
+
+    [Fact]
+    public async Task ChangingThePairCancelsAnOldInFlightResultAndLeavesTheNewResultIntact()
+    {
+        using var fixture = new Fixture();
+        var started = Completion<bool>();
+        var canceled = Completion<bool>();
+        var late = Completion<string>();
+        fixture.Translate = (_, token) =>
+        {
+            token.Register(() => canceled.TrySetResult(true));
+            started.TrySetResult(true); return late.Task;
+        };
+        Task old = fixture.Run(Snapshot(1, "old source"));
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.ChangePair("en", "ko");
+        await canceled.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await old.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.Target = "ko";
+        fixture.Translate = (_, _) => Task.FromResult("새로운 번역");
+        await fixture.Run(Snapshot(10, "new source"));
+        string status = fixture.Services.Status;
+        late.TrySetResult("Old translation");
+        Assert.Equal("새로운 번역", Assert.Single(fixture.Shown).Translation);
+        Assert.Equal("ko", Assert.Single(fixture.ShownTargets));
+        Assert.Equal(status, fixture.Services.Status);
+    }
+
+    [Fact]
+    public async Task AnOutsidePairTargetIsNeverPresentedOrRetainedInTheCache()
+    {
+        using var fixture = new Fixture();
+        fixture.Target = "ja";
+        await fixture.Run(Snapshot(1, "same source"));
+        Assert.Empty(fixture.Shown);
+        Assert.Contains("不属于所选语言对", fixture.Services.Status);
+        fixture.Target = "en";
+        await fixture.Run(Snapshot(2, "same source"));
+        Assert.Equal(2, fixture.Translated.Count);
+        Assert.Single(fixture.Shown);
+    }
+
     private static SelectionSnapshot Snapshot(long version, string text) => new(version, 1234, 42, "document-body", text);
     private static TaskCompletionSource<T> Completion<T>() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -257,10 +351,12 @@ public sealed class SelectionTranslationFlowTests
         public DesktopServices Services { get; } = (DesktopServices)RuntimeHelpers.GetUninitializedObject(typeof(DesktopServices));
         public FakeMonitor Monitor { get; } = new();
         public ConcurrentQueue<string> Translated { get; } = new();
-        public ConcurrentQueue<bool> Targets { get; } = new();
+        public ConcurrentQueue<(string A, string B)> Pairs { get; } = new();
+        public ConcurrentQueue<string> ShownTargets { get; } = new();
         public ConcurrentQueue<(SelectionSnapshot Source, string Translation)> Shown { get; } = new();
         public ConcurrentQueue<long> Dismissed { get; } = new();
         public Func<string, CancellationToken, Task<string>> Translate { get; set; } = (text, _) => Task.FromResult("译文：" + text);
+        public string Target { get; set; } = TranslationLanguages.SimplifiedChinese;
         public Action<CancellationToken>? RequestCreated { get; set; }
         public Func<SelectionSnapshot, string, CancellationToken, Func<bool>, Task> Present { get; set; }
 
@@ -271,12 +367,20 @@ public sealed class SelectionTranslationFlowTests
             Set("_selection", Monitor);
             Set("_cache", _cache);
             Set("_status", "Ready");
-            Set("_selectionTranslator", new Func<string, bool, CancellationToken, Task<string>>((text, toChinese, token) =>
+            Set("<Settings>k__BackingField", new AppSettings("Ctrl+Alt+T", "Ctrl+Alt+D", "Ctrl+Alt+S"));
+            Set("<SelectionEnabled>k__BackingField", true);
+            Set("_selectionTranslator", new Func<string, string, string, CancellationToken, Task<TextTranslation>>(async (text, a, b, token) =>
             {
-                Translated.Enqueue(text); Targets.Enqueue(toChinese); return Translate(text, token);
+                Translated.Enqueue(text); Pairs.Enqueue((a, b));
+                string target = Target;
+                return new(await Translate(text, token), target);
             }));
-            Set("_presentSelection", new Func<SelectionSnapshot, string, CancellationToken, Func<bool>, Task>(
-                (source, text, token, current) => Present(source, text, token, current)));
+            Set("_presentSelection", new Func<SelectionSnapshot, TextTranslation, CancellationToken, Func<bool>, Task>(
+                (source, text, token, current) =>
+                {
+                    if (current()) ShownTargets.Enqueue(text.TargetLanguage);
+                    return Present(source, text.Translation, token, current);
+                }));
             Set("_dismissSelection", new Action<long>(Dismissed.Enqueue));
         }
 
@@ -296,6 +400,8 @@ public sealed class SelectionTranslationFlowTests
             Monitor.Version = version;
             typeof(DesktopServices).GetMethod("SelectionInvalidated", PrivateInstance)!.Invoke(Services, [version]);
         }
+        public void ChangePair(string a, string b) => typeof(DesktopServices).GetMethod("CommitSettings", PrivateInstance)!.Invoke(Services,
+            [Services.Settings with { SelectionLanguageA = a, SelectionLanguageB = b }]);
         public object? Get(string name) => typeof(DesktopServices).GetField(name, PrivateInstance)!.GetValue(Services);
         public void Set(string name, object? value) => typeof(DesktopServices).GetField(name, PrivateInstance)!.SetValue(Services, value);
         public void OtherStatus(string message) => typeof(DesktopServices).GetMethod("SetStatus", PrivateInstance)!.Invoke(Services, [message]);

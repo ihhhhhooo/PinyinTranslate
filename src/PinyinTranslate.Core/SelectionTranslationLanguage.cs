@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace PinyinTranslate.Core;
 
-/// <summary>Local CN/EN direction detection; the original source is never modified.</summary>
+/// <summary>Legacy CN/EN helper for callers of the bool client overload; desktop selections use a model-resolved language pair.</summary>
 public static class SelectionTranslationLanguage
 {
     private static readonly Regex NonProse = new(@"https?://[^\s<>]+|www\.[^\s<>]+|`[^`\r\n]*`",

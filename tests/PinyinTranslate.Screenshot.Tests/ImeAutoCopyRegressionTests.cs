@@ -90,7 +90,7 @@ public sealed class ImeAutoCopyRegressionTests
         Assert.False(fixture.Coordinator.HasAcceptor);
         await BindAsync(fixture);
         await ObserveAsync(fixture, observer);
-        await WaitForHintAsync(fixture, "已复制英文");
+        await WaitForHintAsync(fixture, "已复制译文");
         Assert.Equal("English", clipboard);
         Assert.Single(fixture.CopyRequests);
         Assert.Null(fixture.Get("_anchor"));
@@ -128,7 +128,7 @@ public sealed class ImeAutoCopyRegressionTests
         await BindAsync(fixture);
         await ObserveAsync(fixture, observer);
         Assert.Equal("English", await copied.Task.WaitAsync(TimeSpan.FromSeconds(5)));
-        await WaitForHintAsync(fixture, "已复制英文");
+        await WaitForHintAsync(fixture, "已复制译文");
         var ready = fixture.Coordinator.State;
         fixture.Invoke("OnStateChanged", ready);
         fixture.Invoke("OnStateChanged", ready);
@@ -160,7 +160,7 @@ public sealed class ImeAutoCopyRegressionTests
         Key(fixture, 0x41);
         await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await ObserveAsync(fixture, observer, "新候选");
-        await WaitForHintAsync(fixture, "已复制英文");
+        await WaitForHintAsync(fixture, "已复制译文");
         old.SetResult("obsolete English");
         Assert.Equal("new English", Assert.Single(fixture.CopyRequests).Text);
         Assert.Equal("new English", fixture.Coordinator.State.Translation);
@@ -199,10 +199,10 @@ public sealed class ImeAutoCopyRegressionTests
         Key(fixture, 0x41);
         await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await ObserveAsync(fixture, observer, "新候选");
-        await WaitForHintAsync(fixture, "已复制英文");
+        await WaitForHintAsync(fixture, "已复制译文");
         old.SetException(new InvalidOperationException("obsolete failure from A"));
         await faultObserved.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        Assert.Contains("已复制英文", Hint(fixture));
+        Assert.Contains("已复制译文", Hint(fixture));
         Assert.Equal("Copied", fixture.Get("_copyState")!.ToString());
         Assert.Equal("new English", Assert.Single(fixture.CopyRequests).Text);
         Assert.DoesNotContain(statuses, value => value.Contains("失败", StringComparison.Ordinal) || value.Contains("obsolete failure", StringComparison.Ordinal));
@@ -252,7 +252,7 @@ public sealed class ImeAutoCopyRegressionTests
         Assert.False(request.StillCurrent());
         result.SetResult(new(true, true, "Copied"));
         Assert.NotEqual("Copied", fixture.Get("_copyState")!.ToString());
-        Assert.DoesNotContain("已复制英文", Hint(fixture));
+        Assert.DoesNotContain("已复制译文", Hint(fixture));
         Assert.Equal(0, Volatile.Read(ref copied));
         Assert.Empty(fixture.Faults);
     }
@@ -326,8 +326,65 @@ public sealed class ImeAutoCopyRegressionTests
         fixture.ForegroundWindow = 2; // Pure injected getter; no native foreground access.
         Assert.False(request.StillCurrent());
         result.SetResult(new(true, true, "Copied"));
-        Assert.DoesNotContain("已复制英文", Hint(fixture));
+        Assert.DoesNotContain("已复制译文", Hint(fixture));
         Assert.Equal(0, Volatile.Read(ref copied));
+        Assert.Empty(fixture.Faults);
+    }
+
+    [Fact]
+    public async Task ATargetChangeCancelsOldTranslationAndOnlyTheNewLanguageIsCopied()
+    {
+        var observer = new Observer();
+        using var fixture = Fixture(observer);
+        string target = "English";
+        var started = Completion<bool>();
+        var canceled = Completion<bool>();
+        var old = Completion<string>();
+        fixture.TranslateAsync = (_, token) =>
+        {
+            if (target != "English") return Task.FromResult("日本語");
+            token.Register(() => canceled.TrySetResult(true));
+            started.TrySetResult(true); return old.Task;
+        };
+        string? clipboard = null;
+        fixture.CopyAsync = (text, current, _) =>
+        {
+            Assert.True(current()); clipboard = text;
+            return Task.FromResult(new TranslationClipboardCopyResult(true, true, "Copied"));
+        };
+        await BindAsync(fixture);
+        await ObserveAsync(fixture, observer);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.Invoke("ChangeTranslationTarget", (Action)(() => target = "Japanese"));
+        await canceled.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        old.TrySetResult("Old English");
+        await ObserveAsync(fixture, observer);
+        await WaitForHintAsync(fixture, "已复制译文");
+        Assert.Equal("日本語", clipboard);
+        Assert.Equal("日本語", Assert.Single(fixture.CopyRequests).Text);
+        Assert.False(Tab(fixture));
+        Assert.Empty(fixture.Faults);
+    }
+
+    [Fact]
+    public async Task ATargetChangeAlsoRevokesAnAlreadyQueuedClipboardWrite()
+    {
+        var observer = new Observer();
+        using var fixture = Fixture(observer);
+        var entered = Completion<bool>();
+        var complete = Completion<TranslationClipboardCopyResult>();
+        fixture.CopyAsync = (_, _, _) => { entered.TrySetResult(true); return complete.Task; };
+        await BindAsync(fixture);
+        await ObserveAsync(fixture, observer);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        var queued = Assert.Single(fixture.CopyRequests);
+        bool committed = false;
+        fixture.Invoke("ChangeTranslationTarget", (Action)(() => committed = true));
+        Assert.True(committed);
+        Assert.False(queued.StillCurrent());
+        Assert.True(queued.CancellationToken.IsCancellationRequested);
+        complete.TrySetResult(new(true, true, "Copied"));
+        Assert.DoesNotContain("已复制译文", Hint(fixture));
         Assert.Empty(fixture.Faults);
     }
 

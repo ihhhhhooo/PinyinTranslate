@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using PinyinTranslate.Core;
 
 namespace PinyinTranslate.App;
 
@@ -10,6 +11,7 @@ public partial class MainWindow : Window
     private bool _refreshing;
     private bool _capturing;
     private bool _savingSettings;
+    private string? _languageSettingsSignature;
     private string _visualTheme = "light";
     private AppearancePage? _settingsPage;
     private StatisticsPage? _statisticsPage;
@@ -30,6 +32,10 @@ public partial class MainWindow : Window
         ImeShortcut.Text = settings.ImeHotkey;
         SelectionShortcut.Text = settings.SelectionHotkey;
         ScreenshotShortcut.Text = settings.ScreenshotHotkey;
+        ImeTargetChoice.ItemsSource = TranslationLanguages.All;
+        SelectionLanguageAChoice.ItemsSource = TranslationLanguages.All;
+        SelectionLanguageBChoice.ItemsSource = TranslationLanguages.All;
+        ScreenshotTargetChoice.ItemsSource = TranslationLanguages.All;
         RefreshState();
         Closed += (_, _) => { _shutdown.Cancel(); _services.StateChanged -= ServicesOnStateChanged; _services.ScreenshotRequested -= ServicesOnScreenshotRequested; _statisticsPage?.Dispose(); _settingsPage?.Dispose(); _services.Dispose(); _shutdown.Dispose(); };
     }
@@ -47,6 +53,20 @@ public partial class MainWindow : Window
             ImeShortcut.IsReadOnly = _services.IsPreparingForUpdate;
             SelectionShortcut.IsReadOnly = _services.IsPreparingForUpdate;
             ScreenshotShortcut.IsReadOnly = _services.IsPreparingForUpdate;
+            bool canEditLanguages = !_savingSettings && !_services.IsPreparingForUpdate;
+            ImeTargetChoice.IsEnabled = SelectionLanguageAChoice.IsEnabled = SelectionLanguageBChoice.IsEnabled =
+                ScreenshotTargetChoice.IsEnabled = SwapLanguagesButton.IsEnabled = SaveLanguagesButton.IsEnabled = canEditLanguages;
+            var settings = _services.Settings;
+            string signature = string.Join('|', settings.ImeTargetLanguage, settings.SelectionLanguageA, settings.SelectionLanguageB, settings.ScreenshotTargetLanguage);
+            // Status refreshes must not erase unsaved dropdown choices.
+            if (_languageSettingsSignature != signature)
+            {
+                ImeTargetChoice.SelectedValue = settings.ImeTargetLanguage;
+                SelectionLanguageAChoice.SelectedValue = settings.SelectionLanguageA;
+                SelectionLanguageBChoice.SelectedValue = settings.SelectionLanguageB;
+                ScreenshotTargetChoice.SelectedValue = settings.ScreenshotTargetLanguage;
+                _languageSettingsSignature = signature;
+            }
         }
         finally { _refreshing = false; }
     }
@@ -126,7 +146,7 @@ public partial class MainWindow : Window
         Grid.SetRow(FeatureCard, 2);
         Grid.SetColumn(FeatureCard, 0);
         Grid.SetColumnSpan(FeatureCard, 3);
-        Grid.SetRow(HomeFooter, 3);
+        Grid.SetRow(HomeFooter, 4);
         FeatureCard.Margin = comic ? new Thickness(18, 0, 0, 14) : collage ? new Thickness(0, 0, 20, 14) : new Thickness(0, 0, 0, 14);
 
         HomeHeader.MinHeight = pop || comic || gold ? 68 : 52;
@@ -161,6 +181,7 @@ public partial class MainWindow : Window
     {
         if (_savingSettings || _services.IsPreparingForUpdate) return;
         _savingSettings = true;
+        RefreshState();
         try
         {
             var settings = _services.Settings with { ImeHotkey = ImeShortcut.Text.Trim(), SelectionHotkey = SelectionShortcut.Text.Trim(), ScreenshotHotkey = ScreenshotShortcut.Text.Trim() };
@@ -169,12 +190,58 @@ public partial class MainWindow : Window
             ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, error == null ? "Muted" : "ErrorInk");
         }
         catch (Exception) { ShortcutStatus.Text = "保存失败，请检查快捷键后重试"; ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk"); }
-        finally { _savingSettings = false; }
+        finally { _savingSettings = false; RefreshState(); }
     }
+
+    private void LanguagesEdited(object sender, SelectionChangedEventArgs e)
+    {
+        if (_refreshing || _languageSettingsSignature is null) return;
+        LanguageStatus.Text = "修改语言后点击保存";
+        LanguageStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+    }
+
+    private void SwapLanguagesClicked(object sender, RoutedEventArgs e)
+    {
+        if (_savingSettings || _services.IsPreparingForUpdate) return;
+        var a = SelectionLanguageAChoice.SelectedValue;
+        SelectionLanguageAChoice.SelectedValue = SelectionLanguageBChoice.SelectedValue;
+        SelectionLanguageBChoice.SelectedValue = a;
+    }
+
+    private async void SaveLanguagesClicked(object sender, RoutedEventArgs e)
+    {
+        if (_savingSettings || _services.IsPreparingForUpdate) return;
+        _savingSettings = true;
+        RefreshState();
+        try
+        {
+            var settings = _services.Settings with
+            {
+                ImeTargetLanguage = ImeTargetChoice.SelectedValue as string ?? "",
+                SelectionLanguageA = SelectionLanguageAChoice.SelectedValue as string ?? "",
+                SelectionLanguageB = SelectionLanguageBChoice.SelectedValue as string ?? "",
+                ScreenshotTargetLanguage = ScreenshotTargetChoice.SelectedValue as string ?? ""
+            };
+            var error = await _services.ApplySettingsAsync(settings);
+            LanguageStatus.Text = error ?? "翻译语言已保存";
+            LanguageStatus.SetResourceReference(TextBlock.ForegroundProperty, error is null ? "Muted" : "ErrorInk");
+        }
+        catch (Exception)
+        {
+            LanguageStatus.Text = "保存语言失败，请重试";
+            LanguageStatus.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk");
+        }
+        finally { _savingSettings = false; RefreshState(); }
+    }
+
     private bool CanRestartForUpdate() => !_capturing && !_savingSettings &&
         ImeShortcut.Text.Trim() == _services.Settings.ImeHotkey &&
         SelectionShortcut.Text.Trim() == _services.Settings.SelectionHotkey &&
-        ScreenshotShortcut.Text.Trim() == _services.Settings.ScreenshotHotkey;
+        ScreenshotShortcut.Text.Trim() == _services.Settings.ScreenshotHotkey &&
+        ImeTargetChoice.SelectedValue as string == _services.Settings.ImeTargetLanguage &&
+        SelectionLanguageAChoice.SelectedValue as string == _services.Settings.SelectionLanguageA &&
+        SelectionLanguageBChoice.SelectedValue as string == _services.Settings.SelectionLanguageB &&
+        ScreenshotTargetChoice.SelectedValue as string == _services.Settings.ScreenshotTargetLanguage;
     private async void CaptureClicked(object sender, RoutedEventArgs e) => await CaptureAsync();
     private void ShowError(string message) => MessageBox.Show(this, message, "PinyinTranslate", MessageBoxButton.OK, MessageBoxImage.Warning);
 

@@ -30,19 +30,21 @@ public sealed class SelectionTranslationLanguageTests
     [InlineData("Translate selected English into Chinese.", true)]
     public async Task ResolvedDirectionReachesTheRealClientRequestWithoutModifyingTheSource(string source, bool toChinese)
     {
-        string? sent = null;
+        string? sent = null, prompt = null;
         var ledger = new Ledger();
         using var http = new HttpClient(new Handler(async (request, cancellation) =>
         {
             using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync(cancellation));
             sent = body.RootElement.GetProperty("messages")[1].GetProperty("content").GetString();
+            prompt = body.RootElement.GetProperty("messages")[0].GetProperty("content").GetString();
             return new(HttpStatusCode.OK) { Content = new StringContent(
                 "{\"choices\":[{\"finish_reason\":\"stop\",\"message\":{\"content\":\"mock translation\"}}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":3}}", Encoding.UTF8, "application/json") };
         }));
         var client = new DeepSeekClient(http, ledger, () => "fake-test-key");
         Assert.Equal("mock translation", await client.TranslateAsync(source,
             SelectionTranslationLanguage.ShouldTranslateToChinese(source), "selection-fake"));
-        Assert.Equal((toChinese ? "Translate the following text into Chinese:\n" : "Translate the following text into English:\n") + source, sent);
+        Assert.Equal(source, sent);
+        Assert.Contains(toChinese ? "Simplified Chinese (zh-Hans)" : "English (en)", prompt);
         Assert.Equal(1, ledger.Requests); Assert.Equal(1, ledger.Completed);
     }
 

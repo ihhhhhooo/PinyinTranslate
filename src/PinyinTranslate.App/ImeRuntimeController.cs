@@ -203,6 +203,20 @@ internal sealed class ImeRuntimeController : IDisposable
         finally { source.Dispose(); }
     }
 
+    /// <summary>Commits the target and revokes old previews/copies under the same runtime lock.</summary>
+    internal void ChangeTranslationTarget(Action commit)
+    {
+        lock (_gate)
+        {
+            commit();
+            _inputVersion++;
+            _publication = null;
+            _acceptanceStatusVersion++; _lastAcceptanceNotice = null;
+            InvalidateOperationsLocked();
+            if (Enabled) _binding?.Observer.NotifyInputChanged();
+        }
+    }
+
     private async Task PollAsync(long epoch, CancellationToken token)
     {
         Diagnose("poll.started", $"pollEpoch={epoch}");
@@ -1206,13 +1220,13 @@ internal sealed class ImeRuntimeController : IDisposable
         {
             return _copyState switch
             {
-                CopyState.Copying => "正在复制英文，请等待已复制提示。",
-                CopyState.Copied => "已复制英文；手动按 Esc 取消拼音，再 Ctrl+V 粘贴。",
+                CopyState.Copying => "正在复制译文，请等待已复制提示。",
+                CopyState.Copied => "已复制译文；手动按 Esc 取消拼音，再 Ctrl+V 粘贴。",
                 CopyState.Failed => $"复制失败（原因码：{_copyFailureReason ?? "ClipboardCopyFailed"}）；请继续输入后重试。",
                 _ => "正在翻译当前首项，成功后将自动复制。"
             };
         }
-        if (state.Error is not null) return "翻译失败，尚未复制英文。";
+        if (state.Error is not null) return "翻译失败，尚未复制译文。";
         if (state.Observation is null) return "等待微软拼音候选；翻译成功后将自动复制。";
         return "正在翻译当前首项，成功后将自动复制。";
     }

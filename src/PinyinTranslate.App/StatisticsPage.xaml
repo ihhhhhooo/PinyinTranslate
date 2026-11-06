@@ -36,7 +36,7 @@
                 <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="成功取得译文" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="ResultsValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="划词与截图，含缓存结果" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
                 <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="处理原文字符" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="SourceValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="截图按识别出的原文计算" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
                 <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="已记录 Token" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="TokenValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="API 输入 + 输出" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
-                <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="新版规则估算费用" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="CostValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="旧版估算另列，非实际账单" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
+                <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="费用估算" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="CostValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="历史估算单列，非实际账单" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
             </UniformGrid>
             <Border Style="{StaticResource StatsCard}" Margin="0,0,0,14">
                 <StackPanel>
@@ -54,7 +54,7 @@
                     <TextBlock Text="API 用量" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="请求次数&#10;输入 / 输出 Token&#10;新版缓存命中 / 未命中 Token&#10;新版未分类输入 Token&#10;缺少缓存明细的请求&#10;未返回用量的请求&#10;今日请求 / Token（北京时间）&#10;今日新版估算费用&#10;旧版估算（未重算）" Foreground="{DynamicResource Muted}" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
+                        <TextBlock Text="请求次数&#10;输入 / 输出 Token&#10;已记录缓存命中 / 未命中 Token&#10;已记录未分类输入 Token&#10;缺少缓存明细的请求&#10;未返回用量的请求&#10;今日请求 / Token（北京时间）&#10;今日估算费用&#10;历史估算（缺少明细）" Foreground="{DynamicResource Muted}" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
                         <TextBlock x:Name="ApiDetails" Grid.Column="1" Text="—&#10;—&#10;—&#10;—&#10;—&#10;—&#10;—&#10;—&#10;—" TextAlignment="Right" FontWeight="SemiBold" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
                     </Grid>
                     <TextBlock x:Name="PricingInfo" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,13,0,0"/>

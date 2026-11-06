@@ -64,8 +64,8 @@ public partial class StatisticsPage : UserControl, IDisposable
             Number(t.SelectionResults) + " / " + Number(t.ScreenshotResults),
             Number(t.TranslationCharacters),
             Number(t.OriginalCopies) + " / " + Number(t.TranslationCopies));
-        StatisticsSince.Text = "字数、复制与翻译次数从新版开始记录（" + t.SinceUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture) +
-            " 起），旧版数据无法补录。字符包含空格与标点；仅保存汇总数字。";
+        StatisticsSince.Text = "统计开始时间：" + t.SinceUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm", CultureInfo.CurrentCulture) +
+            "。数据持续累计，软件升级会保留已有统计。字符包含空格与标点；仅保存汇总数字。";
 
         _summary = BuildTranslationSummary(t, results);
         if (snapshot.Api is not { } api)
@@ -96,18 +96,18 @@ public partial class StatisticsPage : UserControl, IDisposable
                 $"Flash 当前为{(price.IsPeak ? "高峰" : "空闲")}时段（北京时间）。每百万 Token：缓存命中 ¥{price.CacheHitCnyPerMillion:0.##}，未命中 ¥{price.CacheMissCnyPerMillion:0.##}，输出 ¥{price.OutputCnyPerMillion:0.##}。\n" +
                 "周一至周五 09:00–12:00、14:00–18:00 为高峰；周末和中国法定节假日全天空闲。";
             PriceExplanation.Text = "费用按本机请求发起时间与服务端用量估算，不含未返回用量的请求；实际费用以服务商账单为准。此处缓存指服务端 Token 缓存，本地译文缓存命中不产生 API 请求费用。" +
-                (api.LegacyPricingRequests > 0 ? $" {Number(api.LegacyPricingRequests)} 次旧版记录缺少时段/缓存明细，旧版估算另列，不计入新版费用。" : "") +
+                (api.LegacyPricingRequests > 0 ? $" {Number(api.LegacyPricingRequests)} 次历史记录缺少时段/缓存明细，其费用单列为“历史估算”，不计入“费用估算”。" : "") +
                 (api.MissingCacheDetails > 0 ? " 缓存明细缺失或异常的输入按未命中上限估算。" : "") +
                 (api.MissingCalendar > 0 || price is { CalendarKnown: false } ? $" 部分日期的节假日资料未覆盖，工作日高峰按上限估算；日历覆盖 {FlashPricing.CalendarCoverage}。" : "");
             _summary += "\nAPI 用量\n请求次数：" + Number(api.Requests) +
                 "\n输入 / 输出 Token：" + Number(api.InputTokens) + " / " + Number(api.OutputTokens) +
                 "\n未返回用量的请求：" + Number(api.MissingUsage) +
-                "\n新版规则估算费用：" + Money(api.EstimatedCny) +
-                "\n新版缓存命中 / 未命中 Token：" + Number(api.CacheHitTokens) + " / " + Number(api.CacheMissTokens) +
-                "\n新版未分类输入 Token：" + Number(api.UnclassifiedInputTokens) +
-                "\n旧版估算（未重算）：" + Money(api.LegacyEstimatedCny) +
+                "\n费用估算（历史估算另列）：" + Money(api.EstimatedCny) +
+                "\n已记录缓存命中 / 未命中 Token：" + Number(api.CacheHitTokens) + " / " + Number(api.CacheMissTokens) +
+                "\n已记录未分类输入 Token：" + Number(api.UnclassifiedInputTokens) +
+                "\n历史估算（缺少明细）：" + Money(api.LegacyEstimatedCny) +
                 "\n今日请求 / Token（北京时间）：" + Number(api.TodayRequests) + " / " + Number(api.TodayTokens) +
-                "\n今日新版估算费用：" + Money(api.TodayEstimatedCny) + "\n" + PricingInfo.Text + "\n" + PriceExplanation.Text;
+                "\n今日估算费用（历史估算另列）：" + Money(api.TodayEstimatedCny) + "\n" + PricingInfo.Text + "\n" + PriceExplanation.Text;
         }
         if (!string.IsNullOrWhiteSpace(snapshot.Warning)) _summary += "\n提示：" + snapshot.Warning;
         CopySummaryButton.IsEnabled = true;
@@ -122,7 +122,7 @@ public partial class StatisticsPage : UserControl, IDisposable
         "\n成功取得译文：" + Number(results) + "（划词 " + Number(t.SelectionResults) + "，截图 " + Number(t.ScreenshotResults) + "）" +
         "\n原文 / 译文字符：" + Number(t.SourceCharacters) + " / " + Number(t.TranslationCharacters) +
         "\n原文 / 译文复制：" + Number(t.OriginalCopies) + " / " + Number(t.TranslationCopies) +
-        "\n字数、复制与翻译次数从新版起记录，旧版无法补录；字符包含空格和标点。";
+        "\n数据持续累计，软件升级会保留已有统计。字符包含空格与标点；仅保存汇总数字。";
 
     private static string Number(long n) => n.ToString("N0", CultureInfo.CurrentCulture);
     private static string Money(decimal n) => "¥" + n.ToString("0.00000000", CultureInfo.InvariantCulture);

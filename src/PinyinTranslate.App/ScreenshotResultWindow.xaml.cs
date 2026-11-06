@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
+using PinyinTranslate.Core;
 
 namespace PinyinTranslate.App;
 
@@ -21,6 +22,7 @@ public partial class ScreenshotResultWindow : Window
     public void SetResult(ScreenshotResult result)
     {
         _items = result.Items; Items.ItemsSource = _items;
+        TranslationLabel.Text = "译文 · " + TranslationLanguages.Get(result.TargetLanguage).DisplayName;
         StatusLabel.Text = result.IsComplete ? "识别与翻译已返回，请对照原图核验" : "完整性待核对，请对照原图核验";
         if (!string.IsNullOrWhiteSpace(result.Warning)) StatusLabel.Text += " · " + result.Warning;
     }

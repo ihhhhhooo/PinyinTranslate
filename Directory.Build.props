@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version>1.0.3</Version>
+    <Version>1.0.4</Version>
     <VelopackVersion>1.2.161</VelopackVersion>
     <PinnedRuntimeVersion>10.0.14</PinnedRuntimeVersion>
   </PropertyGroup>

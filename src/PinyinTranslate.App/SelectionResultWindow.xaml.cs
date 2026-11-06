@@ -13,13 +13,14 @@ public partial class SelectionResultWindow : Window
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")] private static extern IntPtr GetWindowLongPtr64(IntPtr hwnd, int index);
     [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")] private static extern IntPtr SetWindowLongPtr64(IntPtr hwnd, int index, IntPtr value);
 
-    public SelectionResultWindow(string source, string translation, Action<string, bool>? onCopied = null)
+    public SelectionResultWindow(string source, string translation, Action<string, bool>? onCopied = null,
+        string targetLanguage = TranslationLanguages.SimplifiedChinese)
     {
         _onCopied = onCopied;
         InitializeComponent();
         OriginalLine.Content = source;
         TranslatedLine.Content = translation;
-        TranslationLabel.Text = SelectionTranslationLanguage.ShouldTranslateToChinese(source) ? "译文 · 中文" : "译文 · 英文";
+        TranslationLabel.Text = "译文 · " + TranslationLanguages.Get(targetLanguage).DisplayName;
         SourceInitialized += (_, _) =>
         {
             var handle = new WindowInteropHelper(this).Handle;
