@@ -39,8 +39,11 @@ function Assert-Source([bool] $requireTag) {
     if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[0-9a-f]{40}$') { throw 'Cannot resolve the release source commit.' }
     $changes = @(& git -C $projectRoot status --porcelain --untracked-files=normal)
     if ($LASTEXITCODE -ne 0 -or $changes.Count -ne 0) { throw 'Release validation requires a clean, committed source tree.' }
-    $tagCommit = & git -C $projectRoot rev-parse --verify --quiet ('refs/tags/' + $Tag + '^{commit}')
-    if ($LASTEXITCODE -eq 0) {
+    $localTags = @(& git -C $projectRoot tag --list $Tag)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the local release tag.' }
+    if ($localTags.Count -ne 0) {
+        $tagCommit = & git -C $projectRoot rev-parse --verify ('refs/tags/' + $Tag + '^{commit}')
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the release tag commit.' }
         if ($tagCommit -cne $commit) { throw 'The release tag does not point to the checked-out source commit.' }
     }
     elseif ($requireTag) { throw 'Create the local version tag before publishing; this script never creates or pushes tags.' }
