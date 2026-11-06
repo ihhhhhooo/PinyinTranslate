@@ -114,6 +114,11 @@ try {
         if ($name -eq 'RELEASE-NOTES.md' -and -not $Velopack -and -not (Test-Path -LiteralPath $file)) { continue }
         Copy-Item -LiteralPath $file -Destination $stageDir -Force
     }
+    # README screenshots and the detailed guide use repository-relative docs paths.
+    $documentationDir = Join-Path $projectRoot 'docs'
+    if (Test-Path -LiteralPath $documentationDir -PathType Container) {
+        Copy-Item -LiteralPath $documentationDir -Destination $stageDir -Recurse -Force
+    }
     $reportDir = Join-Path $stageDir 'reports'
     New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
     foreach ($report in @('updates.md', 'pricing.md', 'multilingual.md', 'selection-bidirectional.md', 'selection-fix.md', 'auto-copy.md', 'acceptance.md', 'ime-prototype.md', 'ime-integration.md', 'ime-recovery.md',

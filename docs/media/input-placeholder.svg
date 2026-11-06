@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360" role="img" aria-labelledby="title description">
+  <title id="title">输入翻译截图预留位</title>
+  <desc id="description">等待上传真实截图：微软拼音候选预览与自动复制。</desc>
+  <rect x="2" y="2" width="636" height="356" rx="20" fill="#f8fafc" stroke="#cbd5e1" stroke-width="2" stroke-dasharray="8 7"/>
+  <g transform="translate(268 67)" fill="none" stroke="#94a3b8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+    <rect width="104" height="76" rx="10"/>
+    <circle cx="75" cy="23" r="8"/>
+    <path d="M8 62 34 34 54 55 67 43 96 68"/>
+  </g>
+  <g text-anchor="middle" font-family="Microsoft YaHei, Noto Sans CJK SC, sans-serif">
+    <text x="320" y="207" font-size="34" font-weight="600" fill="#0f172a">输入翻译</text>
+    <text x="320" y="246" font-size="21" fill="#64748b">微软拼音候选预览与自动复制</text>
+    <rect x="251" y="277" width="138" height="32" rx="16" fill="#e2e8f0"/>
+    <text x="320" y="299" font-size="17" fill="#475569">截图待上传</text>
+  </g>
+</svg>
