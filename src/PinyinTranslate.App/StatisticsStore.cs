@@ -27,7 +27,17 @@ public sealed record TranslationStatistics
 }
 
 public sealed record ApiStatistics(long Requests, long InputTokens, long OutputTokens, decimal EstimatedCny,
-    long MissingUsage, long TodayRequests, long TodayTokens, decimal TodayEstimatedCny);
+    long MissingUsage, long TodayRequests, long TodayTokens, decimal TodayEstimatedCny)
+{
+    public long CacheHitTokens { get; init; }
+    public long CacheMissTokens { get; init; }
+    public long UnclassifiedInputTokens { get; init; }
+    public long MissingCacheDetails { get; init; }
+    public long MissingCalendar { get; init; }
+    public long LegacyPricingRequests { get; init; }
+    public decimal LegacyEstimatedCny { get; init; }
+    public FlashPriceQuote? CurrentPricing { get; init; }
+}
 public sealed record StatisticsSnapshot(TranslationStatistics Translation, ApiStatistics? Api, string? Warning);
 
 internal sealed class StatisticsStore

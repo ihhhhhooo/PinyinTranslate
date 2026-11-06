@@ -334,20 +334,7 @@ public sealed class DesktopServices : IAppServices
         catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException or TimeoutException)
         { warnings.Add("旧版 API 用量记录无法读取，统计只包含新版记录。"); }
 
-        var entries = legacy?.Entries ?? [];
-        var todayDate = DateTime.Now.Date;
-        string todayKey = todayDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-        var oldToday = entries.Where(x => x.Time.ToLocalTime().Date == todayDate).ToArray();
-        var newToday = current.Days.Where(x => x.Day == todayKey).ToArray();
-        var api = new ApiStatistics(
-            current.Days.Sum(x => x.Requests) + entries.Count,
-            current.Days.Sum(x => x.InputTokens) + entries.Sum(x => (long)(x.InputTokens ?? 0)),
-            current.Days.Sum(x => x.OutputTokens) + entries.Sum(x => (long)(x.OutputTokens ?? 0)),
-            current.Days.Sum(x => x.EstimatedCny) + entries.Sum(x => x.KnownCny ?? 0m),
-            current.Days.Sum(x => x.MissingUsage) + entries.LongCount(x => x.Status != "complete"),
-            newToday.Sum(x => x.Requests) + oldToday.Length,
-            newToday.Sum(x => x.InputTokens + x.OutputTokens) + oldToday.Sum(x => (long)(x.InputTokens ?? 0) + (x.OutputTokens ?? 0)),
-            newToday.Sum(x => x.EstimatedCny) + oldToday.Sum(x => x.KnownCny ?? 0m));
+        var api = ApiStatisticsCalculator.Create(current, legacy, DateTimeOffset.UtcNow);
         return new(data, api, warnings.Count == 0 ? null : string.Join(" ", warnings));
     }
 

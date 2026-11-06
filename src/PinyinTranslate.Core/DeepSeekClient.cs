@@ -87,8 +87,8 @@ public sealed class DeepSeekClient
             await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token).ConfigureAwait(false);
             using var document = await JsonDocument.ParseAsync(stream, cancellationToken: timeout.Token).ConfigureAwait(false);
             var root = document.RootElement;
-            if (root.TryGetProperty("usage", out var usage) && usage.TryGetProperty("prompt_tokens", out var prompt) && usage.TryGetProperty("completion_tokens", out var completion) && prompt.TryGetInt32(out int p) && completion.TryGetInt32(out int c) && p >= 0 && c >= 0)
-            { _ledger.Complete(reservation, p, c); completed = true; }
+            if (root.TryGetProperty("usage", out var usage) && ApiTokenUsage.TryParse(usage, out var counts))
+            { _ledger.Complete(reservation, counts!); completed = true; }
             var choice = root.GetProperty("choices")[0];
             if (choice.GetProperty("finish_reason").GetString() != "stop") throw new InvalidDataException("模型输出被截断或未正常结束。");
             return choice.GetProperty("message").GetProperty("content").GetString() ?? throw new InvalidDataException("模型未返回内容。");

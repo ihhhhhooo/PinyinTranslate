@@ -116,7 +116,7 @@ try {
     }
     $reportDir = Join-Path $stageDir 'reports'
     New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
-    foreach ($report in @('updates.md', 'selection-bidirectional.md', 'selection-fix.md', 'auto-copy.md', 'acceptance.md', 'ime-prototype.md', 'ime-integration.md', 'ime-recovery.md',
+    foreach ($report in @('updates.md', 'pricing.md', 'selection-bidirectional.md', 'selection-fix.md', 'auto-copy.md', 'acceptance.md', 'ime-prototype.md', 'ime-integration.md', 'ime-recovery.md',
         'universal-input.md', 'tab-paste-fix.md', 'tab-paste-comparison.json', 'quality.md', 'decisions.md', 'api-budget.json')) {
         $reportSource = Join-Path $projectRoot ('reports\' + $report)
         if (Test-Path -LiteralPath $reportSource) { Copy-Item -LiteralPath $reportSource -Destination $reportDir -Force }

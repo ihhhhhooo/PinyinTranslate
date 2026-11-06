@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
+using PinyinTranslate.Core;
 
 namespace PinyinTranslate.App;
 
@@ -71,7 +72,9 @@ public partial class StatisticsPage : UserControl, IDisposable
         {
             TokenValue.Text = "—";
             CostValue.Text = "—";
-            ApiDetails.Text = string.Join("\n", Enumerable.Repeat("—", 5));
+            ApiDetails.Text = string.Join("\n", Enumerable.Repeat("—", 9));
+            PricingInfo.Text = "当前价格暂不可读取。";
+            PriceExplanation.Text = "API 用量暂不可读取，暂不显示费用。";
             _summary += "\nAPI 用量暂不可读取。";
         }
         else
@@ -81,16 +84,30 @@ public partial class StatisticsPage : UserControl, IDisposable
             ApiDetails.Text = string.Join("\n",
                 Number(api.Requests),
                 Number(api.InputTokens) + " / " + Number(api.OutputTokens),
+                Number(api.CacheHitTokens) + " / " + Number(api.CacheMissTokens),
+                Number(api.UnclassifiedInputTokens),
+                Number(api.MissingCacheDetails),
                 Number(api.MissingUsage),
                 Number(api.TodayRequests) + " / " + Number(api.TodayTokens),
-                Money(api.TodayEstimatedCny));
+                Money(api.TodayEstimatedCny),
+                Money(api.LegacyEstimatedCny));
+            var price = api.CurrentPricing;
+            PricingInfo.Text = price is null ? "当前价格暂不可读取。" :
+                $"Flash 当前为{(price.IsPeak ? "高峰" : "空闲")}时段（北京时间）。每百万 Token：缓存命中 ¥{price.CacheHitCnyPerMillion:0.##}，未命中 ¥{price.CacheMissCnyPerMillion:0.##}，输出 ¥{price.OutputCnyPerMillion:0.##}。\n" +
+                "周一至周五 09:00–12:00、14:00–18:00 为高峰；周末和中国法定节假日全天空闲。";
+            PriceExplanation.Text = "费用按本机请求发起时间与服务端用量估算，不含未返回用量的请求；实际费用以服务商账单为准。此处缓存指服务端 Token 缓存，本地译文缓存命中不产生 API 请求费用。" +
+                (api.LegacyPricingRequests > 0 ? $" {Number(api.LegacyPricingRequests)} 次旧版记录缺少时段/缓存明细，旧版估算另列，不计入新版费用。" : "") +
+                (api.MissingCacheDetails > 0 ? " 缓存明细缺失或异常的输入按未命中上限估算。" : "") +
+                (api.MissingCalendar > 0 || price is { CalendarKnown: false } ? $" 部分日期的节假日资料未覆盖，工作日高峰按上限估算；日历覆盖 {FlashPricing.CalendarCoverage}。" : "");
             _summary += "\nAPI 用量\n请求次数：" + Number(api.Requests) +
                 "\n输入 / 输出 Token：" + Number(api.InputTokens) + " / " + Number(api.OutputTokens) +
                 "\n未返回用量的请求：" + Number(api.MissingUsage) +
-                "\n已知用量估算费用：" + Money(api.EstimatedCny) +
-                "\n今日请求 / Token：" + Number(api.TodayRequests) + " / " + Number(api.TodayTokens) +
-                "\n今日估算费用：" + Money(api.TodayEstimatedCny) +
-                "\n费用为本地估算，不含未返回用量的请求；旧版记录可能包含开发测试请求。";
+                "\n新版规则估算费用：" + Money(api.EstimatedCny) +
+                "\n新版缓存命中 / 未命中 Token：" + Number(api.CacheHitTokens) + " / " + Number(api.CacheMissTokens) +
+                "\n新版未分类输入 Token：" + Number(api.UnclassifiedInputTokens) +
+                "\n旧版估算（未重算）：" + Money(api.LegacyEstimatedCny) +
+                "\n今日请求 / Token（北京时间）：" + Number(api.TodayRequests) + " / " + Number(api.TodayTokens) +
+                "\n今日新版估算费用：" + Money(api.TodayEstimatedCny) + "\n" + PricingInfo.Text + "\n" + PriceExplanation.Text;
         }
         if (!string.IsNullOrWhiteSpace(snapshot.Warning)) _summary += "\n提示：" + snapshot.Warning;
         CopySummaryButton.IsEnabled = true;
@@ -108,7 +125,7 @@ public partial class StatisticsPage : UserControl, IDisposable
         "\n字数、复制与翻译次数从新版起记录，旧版无法补录；字符包含空格和标点。";
 
     private static string Number(long n) => n.ToString("N0", CultureInfo.CurrentCulture);
-    private static string Money(decimal n) => "¥" + n.ToString("0.000000", CultureInfo.InvariantCulture);
+    private static string Money(decimal n) => "¥" + n.ToString("0.00000000", CultureInfo.InvariantCulture);
     private void RefreshClicked(object sender, RoutedEventArgs e) => RequestRefresh();
 
     private async void CopySummaryClicked(object sender, RoutedEventArgs e)

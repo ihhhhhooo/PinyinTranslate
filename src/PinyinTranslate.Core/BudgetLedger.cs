@@ -10,6 +10,9 @@ public interface IApiRequestLedger
 {
     Guid Reserve(string caseName, int maxInputTokens, int maxOutputTokens);
     void Complete(Guid id, int inputTokens, int outputTokens);
+    // The development budget retains its original conservative ceiling and audit
+    // format. Normal-use accounting overrides this overload to honor cache usage.
+    void Complete(Guid id, ApiTokenUsage usage) => Complete(id, usage.InputTokens, usage.OutputTokens);
     void MarkUnknown(Guid id);
 }
 

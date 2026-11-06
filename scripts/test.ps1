@@ -15,6 +15,7 @@ $suites = @(
         Directory = 'tests\PinyinTranslate.Core.Tests'
         Project = 'PinyinTranslate.Core.Tests.csproj'
         Sources = @(
+            'ApiUsageLedgerTests.cs'
             'BudgetLedgerIntegrityTests.cs'
             'CandidateBridgeProtocolTests.cs'
             'CandidateTranslationCoordinatorTests.cs'
@@ -23,6 +24,7 @@ $suites = @(
             'EditableContextCapabilitiesTests.cs'
             'EditableInputProtocolTests.cs'
             'GenericTextInsertionTests.cs'
+            'FlashPricingTests.cs'
             'ImeTabInputProtocolTests.cs'
             'InputSessionTests.cs'
             'SelectionTranslationLanguageTests.cs'
@@ -42,7 +44,7 @@ $suites = @(
     [pscustomobject]@{
         Directory = 'tests\PinyinTranslate.Screenshot.Tests'
         Project = 'PinyinTranslate.Screenshot.Tests.csproj'
-        Sources = @('HeadlessRuntimeFixture.cs', 'ImeAutoCopyRegressionTests.cs', 'ImeClipboardStatusTests.cs', 'ImePreviewCapabilityTests.cs', 'ImeStartupBindingTests.cs', 'ImeTabAcceptanceRegressionTests.cs', 'ImeWriteDiagnosticsTests.cs', 'ScreenRectangleTests.cs', 'SelectionTranslationFlowTests.cs', 'StartupCommandPolicyTests.cs', 'UpdatePreparationTests.cs')
+        Sources = @('ApiStatisticsCalculatorTests.cs', 'HeadlessRuntimeFixture.cs', 'ImeAutoCopyRegressionTests.cs', 'ImeClipboardStatusTests.cs', 'ImePreviewCapabilityTests.cs', 'ImeStartupBindingTests.cs', 'ImeTabAcceptanceRegressionTests.cs', 'ImeWriteDiagnosticsTests.cs', 'ScreenRectangleTests.cs', 'SelectionTranslationFlowTests.cs', 'StartupCommandPolicyTests.cs', 'UpdatePreparationTests.cs')
         ExcludedTest = $null
     }
     [pscustomobject]@{
