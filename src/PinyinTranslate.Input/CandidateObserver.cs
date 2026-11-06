@@ -261,6 +261,17 @@ public sealed class CandidateObserver : ICandidateObserver
             int previousHostCount = -1;
             long lastPublishedVersion = -1;
             long activeEpoch = -1;
+            var discoveryCache = new CandidateHostDiscoveryCache();
+            bool retryDiscovery = false;
+            bool RefreshCachedHosts(bool topologyHint, bool readFailed)
+            {
+                bool nativeEnumerationSucceeded = false;
+                int nativeClassMatches = 0;
+                return discoveryCache.RefreshIfNeeded(activeEpoch, subscriptions.Count > 0, topologyHint, readFailed,
+                    () => FindNativeFrames(out nativeEnumerationSucceeded, out nativeClassMatches),
+                    frames => RefreshHosts(automation, automation.GetDesktop(), subscriptions, activeEpoch, frames,
+                        nativeEnumerationSucceeded, nativeClassMatches, replaceHosts: readFailed));
+            }
             Interlocked.Exchange(ref _running, 1);
             stage = "uia-running";
             _ready.TrySetResult(true);
@@ -269,7 +280,7 @@ public sealed class CandidateObserver : ICandidateObserver
             {
                 while (Volatile.Read(ref _disposed) == 0)
                 {
-                    _signal.WaitOne();
+                    _signal.WaitOne(Volatile.Read(ref _enabled) == 1 && (subscriptions.Count == 0 || retryDiscovery) ? 500 : Timeout.Infinite);
                     if (Volatile.Read(ref _disposed) != 0) break;
                     long currentEpoch = Interlocked.Read(ref _modeEpoch);
                     if (activeEpoch != currentEpoch)
@@ -278,6 +289,7 @@ public sealed class CandidateObserver : ICandidateObserver
                         DrainValidations();
                         previousHostCount = -1;
                         lastPublishedVersion = -1;
+                        retryDiscovery = false;
                         activeEpoch = currentEpoch;
                     }
                     if (Volatile.Read(ref _enabled) == 0)
@@ -290,12 +302,20 @@ public sealed class CandidateObserver : ICandidateObserver
                     }
                     if (Interlocked.Exchange(ref _hostDiscoveryChanged, 0) != 0)
                     {
-                        var previousHosts = subscriptions.Keys.Order().ToArray();
-                        RefreshHosts(automation, automation.GetDesktop(), subscriptions, activeEpoch);
-                        if (!previousHosts.SequenceEqual(subscriptions.Keys.Order())) Invalidate();
+                        try
+                        {
+                            var previousHosts = subscriptions.Keys.Order().ToArray();
+                            RefreshCachedHosts(topologyHint: true, readFailed: false);
+                            if (!previousHosts.SequenceEqual(subscriptions.Keys.Order())) Invalidate();
+                        }
+                        catch (Exception error)
+                        {
+                            retryDiscovery = true;
+                            Diagnostic(ref _lastHostDiagnostic, "HOST_REFRESH_EXCEPTION=" + error.GetType().Name);
+                        }
                     }
                     ProcessValidations(automation, subscriptions);
-                    if (Interlocked.Read(ref _version) == lastPublishedVersion) continue;
+                    if (Interlocked.Read(ref _version) == lastPublishedVersion && subscriptions.Count > 0 && !retryDiscovery) continue;
                     // A validation wake-up is not an input event and does not restart the quiet period.
                     long quietVersion = Interlocked.Read(ref _version);
                     long lastChange = Stopwatch.GetTimestamp();
@@ -342,7 +362,8 @@ public sealed class CandidateObserver : ICandidateObserver
                     }
                     try
                     {
-                        RefreshHosts(automation, automation.GetDesktop(), subscriptions, activeEpoch);
+                        RefreshCachedHosts(topologyHint: false, readFailed: retryDiscovery);
+                        retryDiscovery = false;
                         if (subscriptions.Count != previousHostCount)
                         {
                             previousHostCount = subscriptions.Count;
@@ -351,13 +372,21 @@ public sealed class CandidateObserver : ICandidateObserver
                         long version = quietVersion;
                         if (!IsCurrent(version)) continue;
                         var snapshot = Read(automation, subscriptions.Values.Select(s => s.Host), version);
+                        bool noCandidates = snapshot is null && IsCurrent(version) &&
+                            ConfirmNoVisibleCandidates(automation, subscriptions.Values.Select(s => s.Host), version);
+                        if (snapshot is null && !noCandidates && IsCurrent(version) &&
+                            RefreshCachedHosts(topologyHint: false, readFailed: true))
+                        {
+                            snapshot = Read(automation, subscriptions.Values.Select(s => s.Host), version);
+                            noCandidates = snapshot is null && IsCurrent(version) &&
+                                ConfirmNoVisibleCandidates(automation, subscriptions.Values.Select(s => s.Host), version);
+                        }
                         if (snapshot != null && version != lastPublishedVersion && IsCurrent(version))
                         {
                             lastPublishedVersion = version;
                             try { Observed?.Invoke(snapshot); } catch (Exception) { }
                         }
-                        else if (snapshot is null && IsCurrent(version) &&
-                                 ConfirmNoVisibleCandidates(automation, subscriptions.Values.Select(s => s.Host), version))
+                        else if (snapshot is null && noCandidates && IsCurrent(version))
                         {
                             lastPublishedVersion = version;
                             try { CandidatesCleared?.Invoke(version); } catch (Exception) { }
@@ -367,6 +396,7 @@ public sealed class CandidateObserver : ICandidateObserver
                     {
                         // Metadata only: never include provider messages or candidate/document text.
                         Diagnostic(ref _lastReadDiagnostic, "PROVIDER_READ_EXCEPTION=" + error.GetType().Name);
+                        retryDiscovery = true;
                     }
                 }
             }
@@ -444,7 +474,8 @@ public sealed class CandidateObserver : ICandidateObserver
     {
         public void Dispose() { try { Property.Dispose(); } finally { Structure.Dispose(); } }
     }
-    private void RefreshHosts(UIA3Automation automation, AutomationElement root, Dictionary<string, HostSubscription> subscriptions, long epoch)
+    private void RefreshHosts(UIA3Automation automation, AutomationElement root, Dictionary<string, HostSubscription> subscriptions, long epoch,
+        IReadOnlyList<nint> nativeFrames, bool nativeEnumerationSucceeded, int nativeClassMatches, bool replaceHosts)
     {
         var processIds = new HashSet<int>();
         foreach (var process in Process.GetProcessesByName("TextInputHost"))
@@ -478,7 +509,6 @@ public sealed class CandidateObserver : ICandidateObserver
         // A WPF-hosted client can miss the frame in the desktop UIA child view even
         // while a separate diagnostic process sees it. Anchor the same narrow query
         // to public HWNDs rather than relying solely on that desktop enumeration.
-        var nativeFrames = FindNativeFrames(out bool nativeEnumerationSucceeded, out int nativeClassMatches);
         foreach (nint frameWindow in nativeFrames)
         {
             if (Volatile.Read(ref _enabled) == 0 || Interlocked.Read(ref _modeEpoch) != epoch) return;
@@ -501,7 +531,12 @@ public sealed class CandidateObserver : ICandidateObserver
         foreach (var (key, host) in found)
         {
             if (Volatile.Read(ref _enabled) == 0 || Interlocked.Read(ref _modeEpoch) != epoch) return;
-            if (subscriptions.ContainsKey(key)) continue;
+            if (subscriptions.TryGetValue(key, out var existing))
+            {
+                if (!replaceHosts) continue;
+                try { existing.Dispose(); } catch (Exception) { }
+                subscriptions.Remove(key);
+            }
             var structure = host.RegisterStructureChangedEvent(TreeScope.Subtree, (_, _, _) => OnUiaEvent(epoch));
             try
             {

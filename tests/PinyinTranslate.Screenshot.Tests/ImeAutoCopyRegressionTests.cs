@@ -398,9 +398,70 @@ public sealed class ImeAutoCopyRegressionTests
         Assert.Empty(fixture.Faults);
     }
 
+    [Fact]
+    public async Task PreviewDoesNotWaitForADuplicateFullReadButTheApiStillWaitsForValidation()
+    {
+        var observer = new Observer();
+        using var fixture = Fixture(observer);
+        var validationEntered = Completion<bool>();
+        var release = Completion<bool>();
+        var translated = Completion<bool>();
+        var copied = Completion<bool>();
+        observer.Validation = async (source, token) =>
+        {
+            validationEntered.TrySetResult(true);
+            await release.Task.WaitAsync(token);
+            return observer.IsCurrent(source.Version);
+        };
+        fixture.TranslateAsync = (_, _) => { translated.TrySetResult(true); return Task.FromResult("English"); };
+        fixture.CopyAsync = (_, current, token) =>
+        {
+            bool valid = !token.IsCancellationRequested && current();
+            copied.TrySetResult(valid);
+            return Task.FromResult(new TranslationClipboardCopyResult(valid, valid, valid ? "Copied" : "Stale"));
+        };
+        await BindAsync(fixture);
+        await ObserveAsync(fixture, observer).WaitAsync(TimeSpan.FromSeconds(1));
+        await validationEntered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.NotNull(fixture.Coordinator.State.Observation);
+        Assert.Null(fixture.Coordinator.State.Translation);
+        Assert.False(translated.Task.IsCompleted);
+        Assert.Equal(1, observer.Validations);
+        release.SetResult(true);
+        await translated.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.True(await copied.Task.WaitAsync(TimeSpan.FromSeconds(3)));
+        Assert.Equal(2, observer.Validations); // Before request and after result; no third read just to open the preview.
+    }
+
+    [Theory]
+    [InlineData("window")]
+    [InlineData("process")]
+    [InlineData("editor")]
+    public async Task AnObservationFromAnotherScopeCannotOpenAPreviewOrStartTheApi(string change)
+    {
+        var observer = new Observer();
+        using var fixture = Fixture(observer);
+        int requests = 0;
+        fixture.TranslateAsync = (_, _) => { Interlocked.Increment(ref requests); return Task.FromResult("English"); };
+        await BindAsync(fixture);
+        var source = observer.Candidate("属于");
+        source = change switch
+        {
+            "window" => source with { ForegroundWindow = 2 },
+            "process" => source with { FocusProcessId = Environment.ProcessId + 1 },
+            _ => source with { FocusRuntimeId = "another-editor" }
+        };
+        await fixture.InvokeAsync("ObserveAsync", fixture.Get("_binding")!, source);
+        Assert.Null(fixture.Coordinator.State.Observation);
+        Assert.Equal(0, requests);
+        Assert.Empty(fixture.CopyRequests);
+    }
+
     private sealed class Observer : ICandidateObserver
     {
         private long _version;
+        public int Validations;
+        public Func<CandidateObservation, CancellationToken, Task<bool>>? Validation { get; set; }
         public Task<bool> Ready => Task.FromResult(true);
         public bool Enabled { get; private set; }
         public bool IsRunning => Enabled;
@@ -413,8 +474,12 @@ public sealed class ImeAutoCopyRegressionTests
             long version = Interlocked.Increment(ref _version);
             Invalidated?.Invoke(version);
         }
-        public Task<bool> ValidateAsync(CandidateObservation snapshot, CancellationToken cancellationToken = default) =>
-            Task.FromResult(!cancellationToken.IsCancellationRequested && IsCurrent(snapshot.Version));
+        public Task<bool> ValidateAsync(CandidateObservation snapshot, CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref Validations);
+            if (cancellationToken.IsCancellationRequested || !IsCurrent(snapshot.Version)) return Task.FromResult(false);
+            return Validation?.Invoke(snapshot, cancellationToken) ?? Task.FromResult(true);
+        }
         public void LoseFocus() => FocusInvalidated?.Invoke();
         public event Action<long>? Invalidated;
         public event Action? FocusInvalidated;

@@ -18,6 +18,7 @@ $suites = @(
             'ApiUsageLedgerTests.cs'
             'BudgetLedgerIntegrityTests.cs'
             'CandidateBridgeProtocolTests.cs'
+            'CandidateHostDiscoveryCacheTests.cs'
             'CandidateTranslationCoordinatorTests.cs'
             'CoreTests.cs'
             'EditableContextAnchorTests.cs'

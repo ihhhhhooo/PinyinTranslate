@@ -658,12 +658,15 @@ internal sealed class ImeRuntimeController : IDisposable
             // match pre-edit. The writer must prove the post-Esc baseline before
             // any insertion, including when this hypothesis is missing or wrong.
             if (!_copyOnly && (anchor is null || !MatchesAnchor(anchor, live))) Diagnose("observe.baseline-needs-verification", ContextDiagnostic(live));
-            if (!await binding.Observer.ValidateAsync(source).ConfigureAwait(false)) { Diagnose("observe.source-rejected", $"source={source.Version}"); return; }
+            // The observer already verified this snapshot's focus and candidate.
+            // Publish the waiting preview now. The coordinator still performs
+            // the full live validation before translation and again before copy.
             CandidateObservation published;
             lock (_gate)
             {
                 if (!Enabled || _writing || input != _inputVersion || !ReferenceEquals(binding, _binding) ||
-                    !binding.Observer.IsCurrent(source.Version) || source.FocusRuntimeId != live.FocusRuntimeId)
+                    !binding.Observer.IsCurrent(source.Version) || source.FocusRuntimeId != live.FocusRuntimeId ||
+                    source.FocusProcessId != live.FocusProcessId || source.ForegroundWindow != live.ForegroundWindow)
                 { Diagnose("observe.stale-after-validation", $"source={source.Version};capturedInput={input}"); return; }
                 published = source with { Version = ++_publicationVersion };
                 CancelCopyLocked();
