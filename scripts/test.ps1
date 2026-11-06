@@ -25,6 +25,7 @@ $suites = @(
             'GenericTextInsertionTests.cs'
             'ImeTabInputProtocolTests.cs'
             'InputSessionTests.cs'
+            'SelectionTranslationLanguageTests.cs'
             'TranslationCacheTests.cs'
             'TranslationClipboardWriterTests.cs'
             'UpdateQuiescenceTests.cs'

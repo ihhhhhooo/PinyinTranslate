@@ -115,7 +115,7 @@
                             </StackPanel>
                             <TextBox x:Name="SelectionShortcut" Grid.Row="1" Grid.Column="2" Margin="0,0,8,0" VerticalAlignment="Center" AutomationProperties.Name="划词翻译快捷键"/>
                             <CheckBox x:Name="SelectionCheck" Grid.Row="1" Grid.Column="3" Style="{StaticResource ModeSwitch}" VerticalAlignment="Center" HorizontalAlignment="Center"
-                                      AutomationProperties.Name="开启划词翻译" ToolTip="开启或关闭划词翻译" Checked="SelectionChanged" Unchecked="SelectionChanged"/>
+                                      AutomationProperties.Name="开启划词双向翻译" ToolTip="开启后，选中文译英文，选英文译中文" Checked="SelectionChanged" Unchecked="SelectionChanged"/>
                             <Border Grid.Row="2" Grid.ColumnSpan="4" Height="1" Background="{DynamicResource Divider}" Opacity="0.35"/>
 
                             <Border Grid.Row="3" Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeScreenshot}"><Path Data="{DynamicResource IconCapture}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>

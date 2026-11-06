@@ -220,6 +220,59 @@ public sealed class SelectionMonitorTests
     }
 
     [Fact]
+    public async Task AValidationTimeoutRevokesItsSnapshotAndAllowsTheSameSelectionToRecover()
+    {
+        using var fixture = new Fixture(TimeSpan.FromMilliseconds(250));
+        fixture.Reader.Result = Result("same selected text", "range");
+        await fixture.EnableAndRead();
+        var old = await fixture.Next();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Reader.ValidateOverride = _ =>
+        { entered.TrySetResult(); release.Task.GetAwaiter().GetResult(); return true; };
+        try
+        {
+            var validating = fixture.Monitor.ValidateAsync(old);
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.False(await validating.WaitAsync(TimeSpan.FromSeconds(3)));
+            Assert.False(fixture.Monitor.IsCurrent(old.Version));
+        }
+        finally { fixture.Reader.ValidateOverride = null; release.TrySetResult(); }
+        await fixture.Monitor.RequestReadAsync();
+        var recovered = await fixture.Next();
+        Assert.Equal(old.Text, recovered.Text);
+        Assert.NotEqual(old.Version, recovered.Version);
+        Assert.True(await fixture.Monitor.ValidateAsync(recovered));
+    }
+
+    [Fact]
+    public async Task AQueuedValidationThatExpiredBehindASlowReadDoesNotCallTheProviderLater()
+    {
+        using var fixture = new Fixture(TimeSpan.FromMilliseconds(250));
+        fixture.Reader.Result = Result("same selection", "range");
+        await fixture.EnableAndRead();
+        var old = await fixture.Next();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Reader.ReadOverride = _ =>
+        { entered.TrySetResult(); release.Task.GetAwaiter().GetResult(); return Result("late selection", "late"); };
+        Task slowRead = fixture.Monitor.RequestReadAsync();
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.False(await fixture.Monitor.ValidateAsync(old).WaitAsync(TimeSpan.FromSeconds(3)));
+            Assert.False(fixture.Monitor.IsCurrent(old.Version));
+            await Assert.ThrowsAsync<TimeoutException>(() => slowRead);
+        }
+        finally { fixture.Reader.ReadOverride = null; release.TrySetResult(); }
+        await fixture.Monitor.RequestReadAsync();
+        var current = await fixture.Next();
+        Assert.Equal(0, fixture.Reader.ValidationCount);
+        Assert.Equal("same selection", current.Text);
+        Assert.NotEqual(old.Version, current.Version);
+    }
+
+    [Fact]
     public async Task EventStormDoesNotPostponeTheFirstScheduledReadIndefinitely()
     {
         var reader = new Reader { Result = Result("foreground document", "range") };
@@ -378,9 +431,10 @@ public sealed class SelectionMonitorTests
         public readonly FakeActivity Activity = new();
         public readonly SelectionMonitor Monitor;
         public readonly ConcurrentQueue<SelectionSnapshot> Published = new();
-        public Fixture()
+        public Fixture(TimeSpan? validationTimeout = null)
         {
-            Monitor = new(Reader, Activity, new() { Debounce = TimeSpan.FromDays(1), PollInterval = TimeSpan.Zero });
+            Monitor = new(Reader, Activity, new() { Debounce = TimeSpan.FromDays(1), PollInterval = TimeSpan.Zero,
+                ValidationTimeout = validationTimeout ?? TimeSpan.FromSeconds(2) });
             Monitor.SelectionChanged += selection => { Published.Enqueue(selection); selections.Writer.TryWrite(selection); };
         }
         public async Task EnableAndRead()
@@ -396,9 +450,11 @@ public sealed class SelectionMonitorTests
     {
         public SelectionReadResult? Result;
         public Func<SelectionReadRequest, SelectionReadResult?>? ReadOverride;
+        public Func<SelectionReadResult, bool>? ValidateOverride;
         public bool Validation = true;
         public long Epoch;
         public int ReadCount;
+        public int ValidationCount;
         public readonly ConcurrentQueue<SelectionReadRequest> Requests = new();
         public event Action<SelectionReaderSignal>? Changed;
         public bool Start() => true;
@@ -408,7 +464,11 @@ public sealed class SelectionMonitorTests
             Interlocked.Increment(ref ReadCount); Requests.Enqueue(request);
             return ReadOverride is { } read ? read(request) : Result;
         }
-        public bool Validate(SelectionReadResult selection) => Validation && selection == Result;
+        public bool Validate(SelectionReadResult selection)
+        {
+            Interlocked.Increment(ref ValidationCount);
+            return ValidateOverride?.Invoke(selection) ?? (Validation && selection == Result);
+        }
         public void Signal(SelectionReaderChangeKind kind, bool verified = false) => Emit(new(Epoch, kind, verified));
         public void Emit(SelectionReaderSignal signal) => Changed?.Invoke(signal);
         public void Dispose() { }

@@ -23,7 +23,7 @@
                     <RadioButton x:Name="OriginalLine" Tag="Original" GroupName="SelectionCopyLine" ContentTemplate="{StaticResource CopyLineText}"
                                  Style="{StaticResource CopyLineStyle}" FontSize="15" AutomationProperties.Name="点击复制原文" Click="CopyLineClicked"/>
                     <Border Height="1" Background="{DynamicResource Divider}" Opacity="0.35" Margin="10,10"/>
-                    <TextBlock Text="译文" Foreground="{DynamicResource Muted}" FontSize="11" Margin="10,0,0,3"/>
+                    <TextBlock x:Name="TranslationLabel" Text="译文" Foreground="{DynamicResource Muted}" FontSize="11" Margin="10,0,0,3"/>
                     <RadioButton x:Name="TranslatedLine" Tag="Translation" GroupName="SelectionCopyLine" ContentTemplate="{StaticResource CopyLineText}"
                                  Style="{StaticResource CopyLineStyle}" FontSize="16" Foreground="{DynamicResource TranslationInk}" AutomationProperties.Name="点击复制译文" Click="CopyLineClicked"/>
                 </StackPanel>

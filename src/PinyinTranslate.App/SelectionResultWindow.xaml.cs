@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
+using PinyinTranslate.Core;
 
 namespace PinyinTranslate.App;
 
@@ -18,6 +19,7 @@ public partial class SelectionResultWindow : Window
         InitializeComponent();
         OriginalLine.Content = source;
         TranslatedLine.Content = translation;
+        TranslationLabel.Text = SelectionTranslationLanguage.ShouldTranslateToChinese(source) ? "译文 · 中文" : "译文 · 英文";
         SourceInitialized += (_, _) =>
         {
             var handle = new WindowInteropHelper(this).Handle;

@@ -23,7 +23,10 @@ public sealed class DesktopServices : IAppServices
     private readonly StatisticsStore _statistics;
     private readonly TranslationCache _cache = new();
     private readonly ISelectionMonitor _selection;
-    private readonly Func<string, CancellationToken, Task<string>> _selectionTranslator;
+    private readonly Func<string, bool, CancellationToken, Task<string>> _selectionTranslator;
+    private readonly TimeSpan _selectionTranslationTimeout = TimeSpan.FromSeconds(20);
+    private readonly TimeSpan _selectionValidationTimeout = TimeSpan.FromSeconds(3);
+    private CancellationTokenSource? _selectionStatusOwner;
     private readonly Func<SelectionSnapshot, string, CancellationToken, Func<bool>, Task> _presentSelection;
     private readonly Action<long> _dismissSelection;
     private readonly HotkeyManager _hotkeys;
@@ -69,7 +72,7 @@ public sealed class DesktopServices : IAppServices
         int? imeTestProcessId = null,
         Func<System.Diagnostics.Process, string, string, ICandidateObserver>? candidateObserverFactory = null,
         ISelectionMonitor? selectionMonitor = null,
-        Func<string, CancellationToken, Task<string>>? selectionTranslator = null)
+        Func<string, bool, CancellationToken, Task<string>>? selectionTranslator = null)
     {
         _dispatcher = Application.Current.Dispatcher;
         _selection = selectionMonitor ?? new SelectionMonitor(selectionDiagnostic);
@@ -88,7 +91,7 @@ public sealed class DesktopServices : IAppServices
         _statistics.Changed += StatisticsStoreChanged;
         IApiRequestLedger ledger = developmentBudget is null ? _apiUsage : developmentBudget;
         _client = new DeepSeekClient(_http, ledger, keyProvider ?? (() => File.Exists(_keyPath) ? SecretStore.Load(_keyPath) : ""));
-        _selectionTranslator = selectionTranslator ?? ((text, token) => _client.TranslateAsync(text, true, "划词翻译", token));
+        _selectionTranslator = selectionTranslator ?? ((text, toChinese, token) => _client.TranslateAsync(text, toChinese, "划词翻译", token));
         _ime = new ImeRuntimeController(candidateTranslator ?? TranslateCandidateAsync, imeTestProcessId,
             [TextInputProfile.WinFormsEdit, TextInputProfile.WinFormsRichEdit], candidateObserverFactory);
         _ime.StatusChanged += SetStatus;
@@ -168,7 +171,7 @@ public sealed class DesktopServices : IAppServices
     private void ImeCopyPresentationChanged()
     {
         if (Volatile.Read(ref _disposed) != 0) return;
-        lock (_gate) _statusUsesImeCopyHint = true;
+        lock (_gate) { _statusUsesImeCopyHint = true; _selectionStatusOwner = null; }
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
     public async Task<string?> SetSelectionEnabledAsync(bool enabled)
@@ -188,7 +191,7 @@ public sealed class DesktopServices : IAppServices
             if (Interlocked.Read(ref _selectionToggleVersion) != toggleVersion) return null;
         }
         SelectionEnabled = enabled; _selection.SetEnabled(enabled && _captureSuspendCount == 0);
-        SetStatus(enabled ? "划词自动翻译已开启；支持可读取的输入框、网页和文档选区。" : "划词自动翻译已关闭。");
+        SetStatus(enabled ? "划词双向翻译已开启；中文译英文，英文译中文。" : "划词自动翻译已关闭。");
         if (!enabled) CloseSelectionWindow();
         return null;
     }
@@ -364,15 +367,39 @@ public sealed class DesktopServices : IAppServices
     {
         try { StatisticsChanged?.Invoke(this, EventArgs.Empty); } catch (Exception) { }
     }
-    private void SelectionStatus(string status) { if (SelectionEnabled && Volatile.Read(ref _disposed) == 0) SetStatus(status); }
+    private void SelectionStatus(string status)
+    {
+        lock (_gate)
+        {
+            if (!SelectionEnabled || Volatile.Read(ref _disposed) != 0 || IsPreparingForUpdate ||
+                _selectionRequest is { IsCancellationRequested: false }) return;
+            _status = status; _statusUsesImeCopyHint = false; _selectionStatusOwner = null;
+        }
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
     private void SelectionInvalidated(long version)
     {
+        bool changed = false;
         lock (_gate)
         {
             if (version <= _lastInvalidated) return;
             Interlocked.Exchange(ref _lastInvalidated, version);
-            if (_selectionRequest != null && _selectionRequestVersion < version) CancelSelectionRequest(_selectionRequest);
+            if (_selectionRequest != null && _selectionRequestVersion < version)
+            {
+                CancelSelectionRequest(_selectionRequest);
+                if (ReferenceEquals(_selectionStatusOwner, _selectionRequest))
+                {
+                    _selectionStatusOwner = null;
+                    if (Volatile.Read(ref _disposed) == 0 && !IsPreparingForUpdate)
+                    {
+                        _status = "选区已变化，本轮翻译已取消；等待新的选中文字。";
+                        _statusUsesImeCopyHint = false;
+                        changed = true;
+                    }
+                }
+            }
         }
+        if (changed) StateChanged?.Invoke(this, EventArgs.Empty);
         _dismissSelection(version);
     }
     private void SelectionChanged(SelectionSnapshot snapshot)
@@ -382,6 +409,8 @@ public sealed class DesktopServices : IAppServices
         lock (_gate)
         {
             if (!_selection.IsCurrent(snapshot.Version) || IsPreparingForUpdate) { cts.Dispose(); return; }
+            if (_selectionRequestVersion == snapshot.Version && _selectionRequest is { IsCancellationRequested: false })
+            { cts.Dispose(); return; }
             CancelSelectionRequest(_selectionRequest); _selectionRequest = cts; _selectionRequestVersion = snapshot.Version;
         }
         _ = TranslateSelectionAsync(snapshot, cts);
@@ -389,38 +418,91 @@ public sealed class DesktopServices : IAppServices
     private async Task TranslateSelectionAsync(SelectionSnapshot snapshot, CancellationTokenSource cts)
     {
         bool started = false, recorded = false;
+        CancellationTokenSource? deadline = null;
+        var translationTimeout = _selectionTranslationTimeout > TimeSpan.Zero ? _selectionTranslationTimeout : TimeSpan.FromSeconds(20);
+        var validationTimeout = _selectionValidationTimeout > TimeSpan.Zero ? _selectionValidationTimeout : TimeSpan.FromSeconds(3);
         try
         {
-            if (cts.IsCancellationRequested || !await _selection.ValidateAsync(snapshot).ConfigureAwait(false)) return;
             if (cts.IsCancellationRequested || !_selection.IsCurrent(snapshot.Version)) return;
+            SetSelectionStatus(snapshot, cts, "正在确认选中文字…", claim: true);
+            if (!await _selection.ValidateAsync(snapshot).WaitAsync(validationTimeout, cts.Token).ConfigureAwait(false))
+            {
+                SetSelectionStatus(snapshot, cts, "选区暂时无法确认，本轮已结束；请重新划选或使用截图翻译。", terminal: true);
+                return;
+            }
+            if (cts.IsCancellationRequested || !_selection.IsCurrent(snapshot.Version)) return;
+            bool toChinese = SelectionTranslationLanguage.ShouldTranslateToChinese(snapshot.Text);
+            string direction = toChinese ? "en-zh" : "zh-en";
+            string label = toChinese ? "英 → 中" : "中 → 英";
             started = true;
-            SetStatus("正在翻译选中的文字…");
-            var translated = await _cache.GetOrTranslateAsync(DeepSeekClient.Model, "en-zh", "text-v1", snapshot.Text,
-                token => _selectionTranslator(snapshot.Text, token), out var origin, cts.Token).ConfigureAwait(false);
+            SetSelectionStatus(snapshot, cts, $"正在翻译（{label}）…");
+            deadline = CancellationTokenSource.CreateLinkedTokenSource(cts.Token);
+            deadline.CancelAfter(translationTimeout);
+            var translated = await _cache.GetOrTranslateAsync(DeepSeekClient.Model, direction, "selection-v2", snapshot.Text,
+                token => _selectionTranslator(snapshot.Text, toChinese, token), out var origin, deadline.Token).ConfigureAwait(false);
+            deadline.CancelAfter(Timeout.InfiniteTimeSpan);
             if (cts.IsCancellationRequested) return;
             RecordStatistic(() => _statistics.Result(false, StatisticsStore.Characters(snapshot.Text), StatisticsStore.Characters(translated), origin));
             recorded = true;
-            if (cts.IsCancellationRequested || !await _selection.ValidateAsync(snapshot).ConfigureAwait(false)) return;
+            SetSelectionStatus(snapshot, cts, "译文已返回，正在确认选区…");
+            if (!await _selection.ValidateAsync(snapshot).WaitAsync(validationTimeout, cts.Token).ConfigureAwait(false))
+            {
+                SetSelectionStatus(snapshot, cts, "译文已返回，但选区暂时无法确认；本轮已结束，请重新划选。", terminal: true);
+                return;
+            }
             bool Current() => Volatile.Read(ref _disposed) == 0 && !cts.IsCancellationRequested && _selection.IsCurrent(snapshot.Version);
             if (!Current()) return;
             await _presentSelection(snapshot, translated, cts.Token, Current).ConfigureAwait(false);
+            if (Current()) SetSelectionStatus(snapshot, cts, $"划词翻译完成（{label}）。点击结果可复制。", terminal: true);
         }
         catch (OperationCanceledException)
         {
             if (started && !recorded) { RecordStatistic(() => _statistics.Failure(false, cts.IsCancellationRequested)); recorded = true; }
+            string message = !cts.IsCancellationRequested && deadline?.IsCancellationRequested == true
+                ? $"划词翻译超时（{translationTimeout.TotalSeconds:0.#} 秒），本轮已结束；请稍后重新划选重试。"
+                : cts.IsCancellationRequested ? "本轮划词翻译已取消，等待新的选中文字。"
+                : "划词翻译请求超时或已取消，请重新划选重试。";
+            SetSelectionStatus(snapshot, cts, message, terminal: true);
+        }
+        catch (TimeoutException)
+        {
+            if (started && !recorded) { RecordStatistic(() => _statistics.Failure(false, false)); recorded = true; }
+            SetSelectionStatus(snapshot, cts, "选区确认超时，本轮已结束；请重新划选或使用截图翻译。", terminal: true);
         }
         catch (Exception e)
         {
             if (started && !recorded) { RecordStatistic(() => _statistics.Failure(false, cts.IsCancellationRequested)); recorded = true; }
-            if (!cts.IsCancellationRequested && _selection.IsCurrent(snapshot.Version)) SetStatus("划词翻译失败：" + e.Message);
+            if (!cts.IsCancellationRequested) SetSelectionStatus(snapshot, cts, "划词翻译失败：" + e.Message, terminal: true);
         }
         finally
         {
             if (started && !recorded) RecordStatistic(() => _statistics.Failure(false, true));
+            SetSelectionStatus(snapshot, cts, "本轮划词翻译已结束，等待新的选中文字。", terminal: true);
             lock (_gate) { if (ReferenceEquals(_selectionRequest, cts)) _selectionRequest = null; }
-            await ObserveSelectionCancellationAsync(cts.CancelAsync()).ConfigureAwait(false);
-            cts.Dispose();
+            deadline?.Dispose();
+            _ = DisposeSelectionRequestAsync(cts);
         }
+    }
+
+    private void SetSelectionStatus(SelectionSnapshot snapshot, CancellationTokenSource request, string message,
+        bool claim = false, bool terminal = false)
+    {
+        lock (_gate)
+        {
+            if (Volatile.Read(ref _disposed) != 0 || IsPreparingForUpdate ||
+                !ReferenceEquals(_selectionRequest, request) || _selectionRequestVersion != snapshot.Version ||
+                (!claim && !ReferenceEquals(_selectionStatusOwner, request))) return;
+            if (!terminal && (request.IsCancellationRequested || !_selection.IsCurrent(snapshot.Version))) return;
+            _status = message; _statusUsesImeCopyHint = false;
+            _selectionStatusOwner = terminal ? null : request;
+        }
+        StateChanged?.Invoke(this, EventArgs.Empty);
+    }
+
+    private static async Task DisposeSelectionRequestAsync(CancellationTokenSource request)
+    {
+        try { await ObserveSelectionCancellationAsync(request.CancelAsync()).ConfigureAwait(false); }
+        finally { request.Dispose(); }
     }
     private async Task PresentSelectionAsync(SelectionSnapshot snapshot, string translated, CancellationToken token, Func<bool> current)
     {
@@ -450,7 +532,7 @@ public sealed class DesktopServices : IAppServices
     private void CloseSelectionWindow() { _resultWindow?.Close(); _resultWindow = null; }
     private void SetStatus(string status)
     {
-        lock (_gate) { _status = status; _statusUsesImeCopyHint = false; }
+        lock (_gate) { _status = status; _statusUsesImeCopyHint = false; _selectionStatusOwner = null; }
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
     public void Dispose()

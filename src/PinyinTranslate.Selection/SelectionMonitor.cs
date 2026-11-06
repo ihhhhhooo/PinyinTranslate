@@ -112,8 +112,10 @@ public sealed class SelectionMonitor : ISelectionMonitor
             entry = current;
         }
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int expired = 0;
         if (!TryQueue(() =>
         {
+            if (Volatile.Read(ref expired) != 0) { completion.TrySetResult(false); return; }
             bool valid;
             try { valid = IsCurrent(snapshot.Version) && reader.Validate(entry.Evidence); }
             catch (Exception error) { Trace("validate=" + error.GetType().Name); valid = false; }
@@ -123,9 +125,33 @@ public sealed class SelectionMonitor : ISelectionMonitor
                 if (!valid && ReferenceEquals(current, entry)) InvalidateLocked();
             }
             completion.TrySetResult(valid);
-        })) return false;
+        }))
+        {
+            RevokeValidation(entry, "选区复核队列繁忙，本轮已结束；请重新划选。");
+            return false;
+        }
         try { return await completion.Task.WaitAsync(options.ValidationTimeout).ConfigureAwait(false); }
-        catch (TimeoutException) { return false; }
+        catch (TimeoutException)
+        {
+            Interlocked.Exchange(ref expired, 1);
+            RevokeValidation(entry, "页面选区复核超时，本轮已结束；可重新划选或使用截图翻译。");
+            return false;
+        }
+    }
+
+    private void RevokeValidation(Entry entry, string message)
+    {
+        lock (gate)
+        {
+            if (!ReferenceEquals(current, entry)) return;
+            InvalidateLocked();
+            long captured = version;
+            Notice(() =>
+            {
+                lock (gate) if (disposed || !enabled || version != captured || current is not null) return;
+                Invoke(StatusChanged, message);
+            });
+        }
     }
 
     /// <summary>Schedules one serialized read; useful to deterministic injected environments.</summary>
