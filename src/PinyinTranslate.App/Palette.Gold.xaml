@@ -1,0 +1,55 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <LinearGradientBrush x:Key="Canvas" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#111114" Offset="0"/><GradientStop Color="#201B15" Offset="1"/></LinearGradientBrush>
+    <SolidColorBrush x:Key="Surface" Color="#1B1A1B"/>
+    <SolidColorBrush x:Key="Ink" Color="#FFF8E9"/>
+    <SolidColorBrush x:Key="Muted" Color="#DED2BB"/>
+    <SolidColorBrush x:Key="Accent" Color="#E0B95F"/>
+    <SolidColorBrush x:Key="AccentText" Color="#FFE2A1"/>
+    <SolidColorBrush x:Key="TranslationInk" Color="#FFE9B8"/>
+    <LinearGradientBrush x:Key="CardBorder" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#E7CD83" Offset="0"/><GradientStop Color="#80632F" Offset="0.5"/><GradientStop Color="#D3AF5F" Offset="1"/></LinearGradientBrush>
+    <SolidColorBrush x:Key="Divider" Color="#B29963"/>
+    <LinearGradientBrush x:Key="HeaderBadge" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#FAE3A0" Offset="0"/><GradientStop Color="#B78830" Offset="1"/></LinearGradientBrush>
+    <SolidColorBrush x:Key="HeaderBadgeText" Color="#201A10"/>
+    <SolidColorBrush x:Key="BadgeSelection" Color="#42351F"/>
+    <SolidColorBrush x:Key="BadgeScreenshot" Color="#332C22"/>
+    <SolidColorBrush x:Key="BadgeIme" Color="#3C3022"/>
+    <SolidColorBrush x:Key="BadgeInk" Color="#F2D698"/>
+    <SolidColorBrush x:Key="StatusBackground" Color="#2A241B"/>
+    <SolidColorBrush x:Key="StatusBorder" Color="#A4884B"/>
+    <SolidColorBrush x:Key="StatusInk" Color="#FFF2D7"/>
+    <SolidColorBrush x:Key="InputBackground" Color="#211E1B"/>
+    <SolidColorBrush x:Key="InputBorder" Color="#9E824B"/>
+    <SolidColorBrush x:Key="Placeholder" Color="#D3C5AA"/>
+    <SolidColorBrush x:Key="ButtonBackground" Color="#2A2520"/>
+    <SolidColorBrush x:Key="ButtonInk" Color="#FFF0CE"/>
+    <SolidColorBrush x:Key="ButtonBorder" Color="#AE8F52"/>
+    <LinearGradientBrush x:Key="PrimaryBackground" StartPoint="0,0" EndPoint="1,1"><GradientStop Color="#F7E2A0" Offset="0"/><GradientStop Color="#C79A43" Offset="1"/></LinearGradientBrush>
+    <SolidColorBrush x:Key="PrimaryInk" Color="#21190C"/>
+    <SolidColorBrush x:Key="SwitchOff" Color="#37312A"/>
+    <SolidColorBrush x:Key="SwitchOn" Color="#765A24"/>
+    <SolidColorBrush x:Key="SwitchBorder" Color="#B49657"/>
+    <SolidColorBrush x:Key="SwitchKnob" Color="#F0D595"/>
+    <SolidColorBrush x:Key="SwitchOffInk" Color="#F4E4BF"/>
+    <SolidColorBrush x:Key="SwitchOnInk" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="RowHover" Color="#352D1F"/>
+    <SolidColorBrush x:Key="RowSelected" Color="#50401E"/>
+    <SolidColorBrush x:Key="ImageSurface" Color="#242323"/>
+    <SolidColorBrush x:Key="WarningInk" Color="#F1C477"/>
+    <SolidColorBrush x:Key="ErrorInk" Color="#FF9F8F"/>
+    <SolidColorBrush x:Key="OverlayOutline" Color="#E8C46E"/>
+    <SolidColorBrush x:Key="OverlayHintBackground" Color="#E8C46E"/>
+    <SolidColorBrush x:Key="OverlayHintInk" Color="#21190C"/>
+    <SolidColorBrush x:Key="PaperTape" Color="#00000000"/>
+    <Geometry x:Key="IconBrand">M12,2 L21,12 L12,22 L3,12 Z M8,12 L16,12 M12,8 L12,16</Geometry>
+    <Geometry x:Key="IconSelection">M5,3 L5,17 L9,14 L12,21 L15,19 L12,13 L18,13 Z M17,3 L17,7 M15,5 L19,5</Geometry>
+    <Geometry x:Key="IconCapture">M4,6 L20,6 L20,18 L4,18 Z M12,8 L16,12 L12,16 L8,12 Z M2,9 L2,6 M22,15 L22,18</Geometry>
+    <Geometry x:Key="IconIme">M12,3 L21,12 L12,21 L3,12 Z M8,10 L16,10 M12,7 L12,10 M9,12 C10,15 12,16 15,17 M16,12 C15,15 12,16 9,17</Geometry>
+    <Geometry x:Key="HeroOrnament">M12,1 L23,12 L12,23 L1,12 Z M12,5 L19,12 L12,19 L5,12 Z M12,8 L12,16 M8,12 L16,12</Geometry>
+    <DropShadowEffect x:Key="PanelShadow" Color="#B98931" Opacity="0.22" BlurRadius="10" ShadowDepth="2" Direction="270"/>
+    <Thickness x:Key="CardBorderThickness">1</Thickness>
+    <Thickness x:Key="ControlBorderThickness">1</Thickness>
+    <CornerRadius x:Key="CardCornerRadius">2</CornerRadius>
+    <CornerRadius x:Key="ControlCornerRadius">3</CornerRadius>
+    <CornerRadius x:Key="BadgeCornerRadius">2</CornerRadius>
+</ResourceDictionary>

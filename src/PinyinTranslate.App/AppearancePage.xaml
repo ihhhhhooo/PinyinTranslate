@@ -1,0 +1,167 @@
+<UserControl x:Class="PinyinTranslate.App.AppearancePage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource Ink}">
+    <UserControl.Resources>
+        <!-- These are illustrative miniatures of the five different home layouts. -->
+        <DataTemplate x:Key="MinimalPreview">
+            <Border Background="#F5F8F6" Padding="15">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="22" Height="22" CornerRadius="6" Background="#176C57"><TextBlock Text="译" Foreground="White" FontSize="11" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+                        <StackPanel Margin="7,0,0,0"><TextBlock Text="PinyinTranslate" FontSize="9" Foreground="#1E312C" FontWeight="Bold"/><TextBlock Text="轻松翻译" FontSize="7" Foreground="#63766E"/></StackPanel>
+                    </StackPanel>
+                    <Border Background="#EDF6F0" Height="12" CornerRadius="3" Margin="0,9,0,6"/>
+                    <Border Background="White" BorderBrush="#D5E3DB" BorderThickness="1" CornerRadius="6" Padding="8,5">
+                        <StackPanel><TextBlock Text="翻译功能" FontSize="8" FontWeight="Bold" Foreground="#1E312C"/><Border Height="3" Width="120" HorizontalAlignment="Left" Background="#D5E3DB" Margin="0,5,0,0"/><Border Height="3" Width="102" HorizontalAlignment="Left" Background="#E6EDE9" Margin="0,5,0,0"/></StackPanel>
+                    </Border>
+                    <Border Background="White" BorderBrush="#D5E3DB" BorderThickness="1" CornerRadius="6" Height="21" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="PopPreview">
+            <Border Background="#FFF9E9" Padding="12">
+                <Grid>
+                    <Grid.RowDefinitions><RowDefinition Height="33"/><RowDefinition Height="10"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <Border Background="#FFD945" BorderBrush="#17171D" BorderThickness="2">
+                        <Grid Margin="7,3"><TextBlock Text="PinyinTranslate" Foreground="#17171D" FontWeight="Black" FontSize="10" VerticalAlignment="Center"/><TextBlock Text="POP!" HorizontalAlignment="Right" Foreground="#17171D" FontSize="11" FontWeight="Black" VerticalAlignment="Center"/></Grid>
+                    </Border>
+                    <Border Grid.Row="2" Background="White" BorderBrush="#17171D" BorderThickness="2" Padding="6">
+                        <StackPanel><TextBlock Text="翻译功能" FontSize="9" FontWeight="Black" Foreground="#17171D"/><Border Background="#FFD945" Height="13" Margin="0,5,0,0"/><Border Background="#8ED8F8" Height="13" Margin="0,4,0,0"/><Border Background="#F7A4CA" Height="13" Margin="0,4,0,0"/></StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="ComicPreview">
+            <Border Padding="13">
+                <Border.Background><DrawingBrush TileMode="Tile" Viewport="0,0,14,14" ViewportUnits="Absolute"><DrawingBrush.Drawing><DrawingGroup>
+                    <GeometryDrawing Brush="#65CAF1" Geometry="M0,0 H14 V14 H0 Z"/><GeometryDrawing Brush="#299DCE"><GeometryDrawing.Geometry><EllipseGeometry Center="3,3" RadiusX="1" RadiusY="1"/></GeometryDrawing.Geometry></GeometryDrawing>
+                </DrawingGroup></DrawingBrush.Drawing></DrawingBrush></Border.Background>
+                <Grid>
+                    <StackPanel>
+                        <Border Background="#A5E6FA" BorderBrush="#111820" BorderThickness="2" CornerRadius="10" Padding="8,5">
+                            <DockPanel><Border DockPanel.Dock="Right" Background="#FFD629" BorderBrush="#111820" BorderThickness="1" Padding="3,1"><TextBlock Text="灵感!" FontWeight="Black" Foreground="#101820" FontSize="8"/></Border><TextBlock Text="PinyinTranslate" FontWeight="Black" Foreground="#101820" FontSize="9"/></DockPanel>
+                        </Border>
+                        <Border Background="#FFFDF4" BorderBrush="#111820" BorderThickness="2" CornerRadius="10" Padding="8" Margin="12,8,0,0">
+                            <StackPanel><TextBlock Text="翻译功能" FontWeight="Black" FontSize="9" Foreground="#101820"/><Border Background="#FFD629" CornerRadius="4" Height="13" Margin="0,5,0,0"/><Border Background="#A5E6FA" CornerRadius="4" Height="13" Margin="0,4,0,0"/></StackPanel>
+                        </Border>
+                        <Border Background="#FFFDF4" BorderBrush="#111820" BorderThickness="2" CornerRadius="9" Height="21" Margin="0,7,32,0"/>
+                    </StackPanel>
+                    <Path Data="M10,0 L12,7 L20,4 L16,10 L22,13 L15,14 L17,21 L11,17 L6,22 L7,15 L0,12 L7,10 L4,4 L9,7 Z" Fill="#FFD629" Stroke="#111820" StrokeThickness="1.5" Width="25" Height="25" Stretch="Fill" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,1"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="CollagePreview">
+            <Border Background="#EDE4D4" Padding="13">
+                <Grid>
+                    <StackPanel>
+                        <DockPanel Height="25"><TextBlock Text="纸上译语" DockPanel.Dock="Right" Foreground="#98553B" FontSize="9" FontWeight="Bold"/><TextBlock Text="PinyinTranslate" Foreground="#332A23" FontWeight="Bold" FontSize="10"/></DockPanel>
+                        <Border Background="#FFFCF5" BorderBrush="#CCB9A2" BorderThickness="1" Padding="7" Margin="5,7,8,0">
+                            <StackPanel><TextBlock Text="翻译功能" FontSize="9" Foreground="#332A23" FontWeight="Bold"/><Border Height="13" Background="#E6C3A5" Margin="0,7,0,0"/><Border Height="13" Background="#B9C8B2" Margin="0,4,0,0"/><Border Height="13" Background="#EAD69B" Margin="0,4,0,0"/></StackPanel>
+                        </Border>
+                    </StackPanel>
+                    <Border Width="42" Height="10" Background="#CDE7BE8E" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,22,26,0" RenderTransformOrigin="0.5,0.5"><Border.RenderTransform><RotateTransform Angle="-9"/></Border.RenderTransform></Border>
+                </Grid>
+            </Border>
+        </DataTemplate>
+        <DataTemplate x:Key="GoldPreview">
+            <Border Background="#111114" Padding="14">
+                <StackPanel>
+                    <Border BorderBrush="#B99A59" BorderThickness="1" Background="#1B1A1B" Padding="7">
+                        <StackPanel HorizontalAlignment="Center"><TextBlock Text="◇" Foreground="#E0B95F" FontSize="16" HorizontalAlignment="Center" LineHeight="16"/><TextBlock Text="PinyinTranslate" FontSize="9" Foreground="#F8F0DE" FontWeight="SemiBold"/></StackPanel>
+                    </Border>
+                    <Border Height="1" Background="#B99A59" Margin="8,6"/>
+                    <Border Background="#1B1A1B" BorderBrush="#B99A59" BorderThickness="1" Padding="8,5"><StackPanel><TextBlock Text="翻译功能" Foreground="#F8F0DE" FontSize="8" FontWeight="Bold"/><Border Height="3" Background="#80632F" Margin="0,5,0,0"/><Border Height="3" Background="#80632F" Margin="0,4,0,0"/></StackPanel></Border>
+                    <Border Background="#1B1A1B" BorderBrush="#80632F" BorderThickness="1" Height="21" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="30,24,30,30" MaxWidth="1000">
+            <DockPanel Margin="0,0,0,25">
+                <Button DockPanel.Dock="Left" Click="BackClicked" Content="←  返回" Margin="0,0,18,0" AutomationProperties.Name="返回主界面"/>
+                <StackPanel><TextBlock Text="设置" FontSize="23" FontWeight="Bold"/><TextBlock Text="密钥、启动与界面风格" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,3,0,0"/></StackPanel>
+            </DockPanel>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"
+                    CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="20,18" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="DeepSeek API Key" FontFamily="Segoe UI" FontSize="16" FontWeight="Bold"/>
+                    <TextBlock Text="密钥加密保存在当前 Windows 账户中。翻译时，选中的文字或截图会发送至 DeepSeek。"
+                               Foreground="{DynamicResource Muted}" TextWrapping="Wrap" Margin="0,6,0,10" FontSize="12"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Grid>
+                            <PasswordBox x:Name="KeyBox" PasswordChanged="KeyChanged" AutomationProperties.Name="DeepSeek API Key"/>
+                            <TextBlock x:Name="KeyPlaceholder" Text="输入 API Key" Foreground="{DynamicResource Placeholder}" IsHitTestVisible="False"
+                                       Margin="11,0,0,0" VerticalAlignment="Center"/>
+                        </Grid>
+                        <Button Grid.Column="1" Content="保存密钥" Click="SaveKeyClicked" Margin="10,0,0,0"/>
+                    </Grid>
+                    <TextBlock x:Name="KeyStatus" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                    <Border Height="1" Background="{DynamicResource Divider}" Opacity="0.5" Margin="0,14"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Margin="0,0,14,0" VerticalAlignment="Center">
+                            <TextBlock Text="开机自启动" FontSize="15" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="StartupStatus" Text="登录 Windows 后自动启动" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                        </StackPanel>
+                        <CheckBox x:Name="StartupToggle" Grid.Column="1" Style="{StaticResource ModeSwitch}" VerticalAlignment="Center"
+                                  AutomationProperties.Name="开机自启动" ToolTip="登录当前 Windows 账户时自动启动"
+                                  Checked="StartupChanged" Unchecked="StartupChanged"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"
+                    CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="20,18">
+                <StackPanel>
+                    <DockPanel>
+                        <StackPanel DockPanel.Dock="Left"><TextBlock Text="界面风格" FontSize="18" FontWeight="Bold"/><TextBlock Text="左右滑动浏览，点击卡片立即换肤并保存。" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,5,0,0"/></StackPanel>
+                    </DockPanel>
+                    <Grid Margin="0,18,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Button x:Name="PreviousButton" Content="‹" FontSize="24" Width="40" MinHeight="46" Padding="0" Margin="0,0,8,0" VerticalAlignment="Center" Click="PreviousClicked" AutomationProperties.Name="向左浏览风格"/>
+                        <ScrollViewer x:Name="ThemeScroller" Grid.Column="1" HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled" CanContentScroll="False"
+                                      PanningMode="HorizontalOnly" IsManipulationEnabled="True" ScrollChanged="ScrollerChanged" PreviewMouseWheel="ScrollWheel"
+                                      PreviewMouseLeftButtonDown="DragStart" PreviewMouseMove="DragMove" PreviewMouseLeftButtonUp="DragEnd">
+                            <ItemsControl x:Name="ThemeCards">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Button Tag="{Binding Id}" Click="SelectThemeClicked" AutomationProperties.Name="{Binding AccessibilityName}"
+                                                Padding="0" BorderThickness="0" Background="Transparent" Margin="0,0,12,8" HorizontalContentAlignment="Stretch">
+                                            <Border Width="252" Background="{DynamicResource Surface}" CornerRadius="{DynamicResource CardCornerRadius}">
+                                                <Border.Style><Style TargetType="Border"><Setter Property="BorderBrush" Value="{DynamicResource CardBorder}"/><Setter Property="BorderThickness" Value="1"/>
+                                                    <Style.Triggers><DataTrigger Binding="{Binding IsCurrent}" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource Accent}"/><Setter Property="BorderThickness" Value="3"/></DataTrigger></Style.Triggers>
+                                                </Style></Border.Style>
+                                                <StackPanel>
+                                                    <ContentControl Content="{Binding}" Height="160" IsHitTestVisible="False" ClipToBounds="True">
+                                                        <ContentControl.Style><Style TargetType="ContentControl">
+                                                            <Setter Property="ContentTemplate" Value="{StaticResource MinimalPreview}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Id}" Value="pop"><Setter Property="ContentTemplate" Value="{StaticResource PopPreview}"/></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Id}" Value="comic"><Setter Property="ContentTemplate" Value="{StaticResource ComicPreview}"/></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Id}" Value="collage"><Setter Property="ContentTemplate" Value="{StaticResource CollagePreview}"/></DataTrigger>
+                                                                <DataTrigger Binding="{Binding Id}" Value="gold"><Setter Property="ContentTemplate" Value="{StaticResource GoldPreview}"/></DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style></ContentControl.Style>
+                                                    </ContentControl>
+                                                    <StackPanel Margin="13,11,13,13">
+                                                        <DockPanel><TextBlock Text="{Binding ActionLabel}" DockPanel.Dock="Right" Foreground="{DynamicResource AccentText}" FontSize="11" FontWeight="Bold" VerticalAlignment="Center"/><TextBlock Text="{Binding Name}" FontSize="15" FontWeight="Bold" VerticalAlignment="Center"/></DockPanel>
+                                                        <TextBlock Text="{Binding Description}" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" FontSize="11" Margin="0,6,0,0" MinHeight="31"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+                                            </Border>
+                                        </Button>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                        <Button x:Name="NextButton" Grid.Column="2" Content="›" FontSize="24" Width="40" MinHeight="46" Padding="0" Margin="8,0,0,0" VerticalAlignment="Center" Click="NextClicked" AutomationProperties.Name="向右浏览风格"/>
+                    </Grid>
+                    <TextBlock x:Name="ThemeStatus" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\PinyinTranslate.Core\PinyinTranslate.Core.csproj" />
+    <ProjectReference Include="..\PinyinTranslate.Selection\PinyinTranslate.Selection.csproj" />
+    <ProjectReference Include="..\PinyinTranslate.Input\PinyinTranslate.Input.csproj" />
+    <!-- Keep the managed bridge DLL with its transitive apphost/runtimeconfig outputs. -->
+    <ProjectReference Include="..\PinyinTranslate.ImeBridge\PinyinTranslate.ImeBridge.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,66 @@
+<UserControl x:Class="PinyinTranslate.App.StatisticsPage"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{DynamicResource Ink}">
+    <UserControl.Resources>
+        <Style x:Key="StatsCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource Surface}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource CardBorder}"/>
+            <Setter Property="BorderThickness" Value="{DynamicResource CardBorderThickness}"/>
+            <Setter Property="CornerRadius" Value="{DynamicResource CardCornerRadius}"/>
+            <Setter Property="Effect" Value="{DynamicResource PanelShadow}"/>
+            <Setter Property="Padding" Value="17,14"/>
+        </Style>
+        <Style x:Key="MetricLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="FontSize" Value="12"/>
+        </Style>
+        <Style x:Key="MetricValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="23"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,5,0,2"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="28,24,28,30" MaxWidth="960">
+            <DockPanel Margin="0,0,0,20" LastChildFill="True">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="刷新" Click="RefreshClicked" Margin="0,0,8,0"/>
+                    <Button x:Name="CopySummaryButton" Content="复制统计" Click="CopySummaryClicked" IsEnabled="False"
+                            Background="{DynamicResource PrimaryBackground}" Foreground="{DynamicResource PrimaryInk}" FontWeight="SemiBold"/>
+                </StackPanel>
+                <StackPanel><TextBlock Text="使用统计" FontSize="23" FontWeight="Bold"/><TextBlock Text="翻译、复制与 API 用量" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,4,8,0"/></StackPanel>
+            </DockPanel>
+            <UniformGrid Columns="2" Margin="-6,0,-6,6">
+                <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="成功取得译文" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="ResultsValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="划词与截图，含缓存结果" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
+                <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="处理原文字符" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="SourceValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="截图按识别出的原文计算" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
+                <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="已记录 Token" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="TokenValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="API 输入 + 输出" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
+                <Border Style="{StaticResource StatsCard}" Margin="6,0,6,12"><StackPanel><TextBlock Text="已知用量估算费用" Style="{StaticResource MetricLabel}"/><TextBlock x:Name="CostValue" Text="—" Style="{StaticResource MetricValue}"/><TextBlock Text="本地估算，非实际账单" Style="{StaticResource MetricLabel}"/></StackPanel></Border>
+            </UniformGrid>
+            <Border Style="{StaticResource StatsCard}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="翻译与复制" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="划词 / 截图成功&#10;译文字符&#10;原文 / 译文复制" Foreground="{DynamicResource Muted}" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
+                        <TextBlock x:Name="TranslationDetails" Grid.Column="1" Text="—&#10;—&#10;—" TextAlignment="Right" FontWeight="SemiBold" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
+                    </Grid>
+                    <TextBlock x:Name="StatisticsSince" Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,9,0,0"/>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource StatsCard}" Margin="0,0,0,14">
+                <StackPanel>
+                    <TextBlock Text="API 用量" FontSize="16" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <TextBlock Text="请求次数&#10;输入 / 输出 Token&#10;未返回用量的请求&#10;今日请求 / Token&#10;今日估算费用" Foreground="{DynamicResource Muted}" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
+                        <TextBlock x:Name="ApiDetails" Grid.Column="1" Text="—&#10;—&#10;—&#10;—&#10;—" TextAlignment="Right" FontWeight="SemiBold" LineHeight="26" LineStackingStrategy="BlockLineHeight" FontSize="12"/>
+                    </Grid>
+                    <TextBlock Text="费用为本地估算，不含未返回用量的请求，实际费用以服务商账单为准；旧版记录可能包含开发测试请求。" Foreground="{DynamicResource Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+            <TextBlock x:Name="StatisticsStatus" Text="正在读取统计…" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="1,0,0,0"/>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

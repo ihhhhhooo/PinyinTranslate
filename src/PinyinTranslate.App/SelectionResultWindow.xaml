@@ -1,0 +1,33 @@
+<Window x:Class="PinyinTranslate.App.SelectionResultWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="划词翻译" Width="500" MaxHeight="520" SizeToContent="Height"
+        WindowStyle="SingleBorderWindow" ShowInTaskbar="True" ShowActivated="False" Topmost="True" Background="{DynamicResource Canvas}"
+        Foreground="{DynamicResource Ink}" FontFamily="Microsoft YaHei UI">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="20">
+            <Grid Margin="0,0,0,15">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Border Width="36" Height="36" Background="{DynamicResource BadgeSelection}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource ControlBorderThickness}" CornerRadius="{DynamicResource BadgeCornerRadius}">
+                    <Path Data="{DynamicResource IconSelection}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="20" Height="20" Stretch="Uniform"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="11,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="划词翻译" FontWeight="SemiBold" FontSize="16"/>
+                    <TextBlock x:Name="CopyFeedback" Text="点击文字即可复制" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0"/>
+                </StackPanel>
+                <Path Grid.Column="2" Data="{DynamicResource HeroOrnament}" Stroke="{DynamicResource Accent}" StrokeThickness="1.3" Width="28" Height="28" Stretch="Uniform" Opacity="0.35" IsHitTestVisible="False" Margin="12,0,2,0"/>
+            </Grid>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}" CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="13,12">
+                <StackPanel>
+                    <TextBlock Text="原文" Foreground="{DynamicResource Muted}" FontSize="11" Margin="10,0,0,3"/>
+                    <RadioButton x:Name="OriginalLine" Tag="Original" GroupName="SelectionCopyLine" ContentTemplate="{StaticResource CopyLineText}"
+                                 Style="{StaticResource CopyLineStyle}" FontSize="15" AutomationProperties.Name="点击复制原文" Click="CopyLineClicked"/>
+                    <Border Height="1" Background="{DynamicResource Divider}" Opacity="0.35" Margin="10,10"/>
+                    <TextBlock Text="译文" Foreground="{DynamicResource Muted}" FontSize="11" Margin="10,0,0,3"/>
+                    <RadioButton x:Name="TranslatedLine" Tag="Translation" GroupName="SelectionCopyLine" ContentTemplate="{StaticResource CopyLineText}"
+                                 Style="{StaticResource CopyLineStyle}" FontSize="16" Foreground="{DynamicResource TranslationInk}" AutomationProperties.Name="点击复制译文" Click="CopyLineClicked"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

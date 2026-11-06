@@ -1,0 +1,35 @@
+**/bin/
+**/obj/
+publish/
+artifacts/
+*.user
+*.dpapi
+secrets/
+
+# Local credentials and machine-specific settings
+.env
+.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+credentials/
+settings.json
+ime-test-session.json
+
+# IDE state, diagnostics, test output and distribution binaries
+.vs/
+.idea/
+.vscode/
+TestResults/
+*.log
+*.jsonl
+*.dmp
+*.tmp
+*.bak
+*.zip
+*.7z
+*.msi
+*.exe
+*.dll
+*.pdb

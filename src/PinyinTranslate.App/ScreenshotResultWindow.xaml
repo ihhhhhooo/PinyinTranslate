@@ -1,0 +1,79 @@
+<Window x:Class="PinyinTranslate.App.ScreenshotResultWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="截图翻译 · PinyinTranslate" Width="1160" Height="780" MinWidth="760" MinHeight="520"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource Canvas}" Foreground="{DynamicResource Ink}" FontFamily="Microsoft YaHei UI">
+    <Grid Margin="24">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <Grid Margin="0,0,0,18">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <Border Width="42" Height="42" Background="{DynamicResource BadgeScreenshot}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource ControlBorderThickness}" CornerRadius="{DynamicResource BadgeCornerRadius}" VerticalAlignment="Center">
+                <Path Data="{DynamicResource IconCapture}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="22" Height="22" Stretch="Uniform"/>
+            </Border>
+            <StackPanel Grid.Column="1" Margin="12,0,0,0"><TextBlock Text="截图翻译" FontSize="23" FontWeight="SemiBold"/>
+                <TextBlock x:Name="StatusLabel" Text="正在识别和翻译…" Foreground="{DynamicResource Muted}" Margin="0,5,0,0" TextWrapping="Wrap" FontSize="12"/>
+            </StackPanel>
+            <Path Grid.Column="2" Data="{DynamicResource HeroOrnament}" Stroke="{DynamicResource Accent}" StrokeThickness="1.3" Width="36" Height="36" Stretch="Uniform" Opacity="0.4" IsHitTestVisible="False" Margin="12,0,4,0"/>
+        </Grid>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*" MinWidth="220"/><ColumnDefinition Width="10"/><ColumnDefinition Width="*" MinWidth="270"/></Grid.ColumnDefinitions>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}" CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="16">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+                        <TextBlock Text="原图" FontSize="15" FontWeight="SemiBold"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <TextBlock Text="缩放" Foreground="{DynamicResource Muted}" FontSize="12" VerticalAlignment="Center"/>
+                            <Slider x:Name="Zoom" Minimum="0.25" Maximum="3" Value="1" Width="120" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="可拖动查看" Foreground="{DynamicResource Muted}" FontSize="12" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                        </WrapPanel>
+                    </StackPanel>
+                    <ScrollViewer x:Name="ImageScroll" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" Background="{DynamicResource ImageSurface}"
+                                  PreviewMouseLeftButtonDown="ImageDown" PreviewMouseMove="ImageMove" PreviewMouseLeftButtonUp="ImageUp">
+                        <Image x:Name="OriginalImage" HorizontalAlignment="Left" VerticalAlignment="Top" Stretch="None">
+                            <Image.LayoutTransform><ScaleTransform ScaleX="{Binding ElementName=Zoom,Path=Value}" ScaleY="{Binding ElementName=Zoom,Path=Value}"/></Image.LayoutTransform>
+                        </Image>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+            <GridSplitter Grid.Column="1" Width="10" HorizontalAlignment="Stretch" Background="{DynamicResource Divider}" Opacity="0.45" ShowsPreview="True" Cursor="SizeWE" ToolTip="拖动调整左右区域比例"/>
+            <Border Grid.Column="2" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}" CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="18,16">
+                <DockPanel>
+                    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+                        <WrapPanel>
+                            <TextBlock Text="双语对照" FontSize="15" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            <TextBlock Text="字号" Foreground="{DynamicResource Muted}" FontSize="12" Margin="20,0,0,0" VerticalAlignment="Center"/>
+                            <Slider x:Name="FontSizeSlider" Minimum="12" Maximum="28" Value="16" Width="100" Margin="9,0,0,0" VerticalAlignment="Center"/>
+                        </WrapPanel>
+                        <WrapPanel Margin="0,12,0,0">
+                            <Button Content="复制全部原文" Click="CopyAllOriginal" Margin="0,0,8,0" Padding="12,6" MinHeight="34"/>
+                            <Button Content="复制全部译文" Click="CopyAll" Padding="12,6" MinHeight="34"/>
+                        </WrapPanel>
+                        <TextBlock x:Name="CopyFeedback" Text="点击原文或译文即可复制" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,10,0,0" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl x:Name="Items">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border BorderBrush="{DynamicResource Divider}" BorderThickness="0,0,0,1" Padding="0,13,0,14">
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Id, StringFormat=组 {0}}" Foreground="{DynamicResource AccentText}" FontWeight="SemiBold" FontSize="11" Margin="2,0,0,3"/>
+                                            <RadioButton GroupName="CopySelection" Tag="Original" Content="{Binding Original}" ContentTemplate="{StaticResource CopyLineText}"
+                                                         Style="{StaticResource CopyLineStyle}" FontSize="{Binding ElementName=FontSizeSlider,Path=Value}" Margin="0,3,0,0"
+                                                         AutomationProperties.Name="点击复制本组原文" Click="CopyLineClicked"/>
+                                            <RadioButton GroupName="CopySelection" Tag="Translation" Content="{Binding Translation}" ContentTemplate="{StaticResource CopyLineText}"
+                                                         Style="{StaticResource CopyLineStyle}" FontSize="{Binding ElementName=FontSizeSlider,Path=Value}" Foreground="{DynamicResource TranslationInk}" Margin="0,2,0,0"
+                                                         AutomationProperties.Name="点击复制本组译文" Click="CopyLineClicked"/>
+                                            <TextBlock Text="识别不确定，请核对原图" Foreground="{DynamicResource WarningInk}" Margin="11,6,0,0" FontSize="12" TextWrapping="Wrap">
+                                                <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Uncertain}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </Grid>
+</Window>

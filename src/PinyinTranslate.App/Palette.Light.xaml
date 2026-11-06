@@ -1,0 +1,55 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="Canvas" Color="#F5F8F6"/>
+    <SolidColorBrush x:Key="Surface" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Ink" Color="#1E312C"/>
+    <SolidColorBrush x:Key="Muted" Color="#63766E"/>
+    <SolidColorBrush x:Key="Accent" Color="#176C57"/>
+    <SolidColorBrush x:Key="AccentText" Color="#176C57"/>
+    <SolidColorBrush x:Key="TranslationInk" Color="#285B4B"/>
+    <SolidColorBrush x:Key="CardBorder" Color="#E0EAE4"/>
+    <SolidColorBrush x:Key="Divider" Color="#E9F1EC"/>
+    <SolidColorBrush x:Key="HeaderBadge" Color="#176C57"/>
+    <SolidColorBrush x:Key="HeaderBadgeText" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="BadgeSelection" Color="#EAF4EE"/>
+    <SolidColorBrush x:Key="BadgeScreenshot" Color="#EAF4EE"/>
+    <SolidColorBrush x:Key="BadgeIme" Color="#F0F3F1"/>
+    <SolidColorBrush x:Key="BadgeInk" Color="#176C57"/>
+    <SolidColorBrush x:Key="StatusBackground" Color="#EDF6F0"/>
+    <SolidColorBrush x:Key="StatusBorder" Color="#D9EADF"/>
+    <SolidColorBrush x:Key="StatusInk" Color="#315C4D"/>
+    <SolidColorBrush x:Key="InputBackground" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="InputBorder" Color="#D5E3DB"/>
+    <SolidColorBrush x:Key="Placeholder" Color="#84978C"/>
+    <SolidColorBrush x:Key="ButtonBackground" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="ButtonInk" Color="#285448"/>
+    <SolidColorBrush x:Key="ButtonBorder" Color="#D5E4DC"/>
+    <SolidColorBrush x:Key="PrimaryBackground" Color="#176C57"/>
+    <SolidColorBrush x:Key="PrimaryInk" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SwitchOff" Color="#CDDAD3"/>
+    <SolidColorBrush x:Key="SwitchOn" Color="#176C57"/>
+    <SolidColorBrush x:Key="SwitchBorder" Color="#A8BDB1"/>
+    <SolidColorBrush x:Key="SwitchKnob" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="SwitchOffInk" Color="#30473C"/>
+    <SolidColorBrush x:Key="SwitchOnInk" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="RowHover" Color="#F0F6F2"/>
+    <SolidColorBrush x:Key="RowSelected" Color="#E6F3EB"/>
+    <SolidColorBrush x:Key="ImageSurface" Color="#F1F5F2"/>
+    <SolidColorBrush x:Key="WarningInk" Color="#946017"/>
+    <SolidColorBrush x:Key="ErrorInk" Color="#B22222"/>
+    <SolidColorBrush x:Key="OverlayOutline" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="OverlayHintBackground" Color="#E01C362E"/>
+    <SolidColorBrush x:Key="OverlayHintInk" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="PaperTape" Color="#00000000"/>
+    <Geometry x:Key="IconBrand">M4,6 L20,6 M12,3 L12,6 M7,9 C8,13 12,17 17,19 M17,9 C16,13 12,17 7,19 M15,12 L21,12 M18,9 L18,16</Geometry>
+    <Geometry x:Key="IconSelection">M5,4 L5,17 L8,14 L11,20 L14,19 L11,13 L16,13 Z</Geometry>
+    <Geometry x:Key="IconCapture">M4,9 L4,5 L8,5 M16,5 L20,5 L20,9 M20,15 L20,19 L16,19 M8,19 L4,19 L4,15 M8,12 L16,12</Geometry>
+    <Geometry x:Key="IconIme">M4,6 L20,6 M12,3 L12,6 M7,9 C8,13 12,16 16,18 M17,9 C16,13 12,16 7,18 M16,13 L21,13</Geometry>
+    <Geometry x:Key="HeroOrnament">M3,12 L21,12</Geometry>
+    <DropShadowEffect x:Key="PanelShadow" Color="#193C2D" Opacity="0.08" BlurRadius="10" ShadowDepth="2" Direction="270"/>
+    <Thickness x:Key="CardBorderThickness">1</Thickness>
+    <Thickness x:Key="ControlBorderThickness">1</Thickness>
+    <CornerRadius x:Key="CardCornerRadius">12</CornerRadius>
+    <CornerRadius x:Key="ControlCornerRadius">8</CornerRadius>
+    <CornerRadius x:Key="BadgeCornerRadius">10</CornerRadius>
+</ResourceDictionary>

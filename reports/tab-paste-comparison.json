@@ -1,0 +1,24 @@
+{
+  "scenario": "Original baseline lost after focus notification; fresh candidate and new explicit Tab",
+  "scope": "Isolated Runtime binaries with shared managed Input types and fake desktop/clipboard/keyboard boundaries; no product constructor or real input",
+  "results": [
+    {
+      "Version": "shipped",
+      "TranslationReady": true,
+      "AcceptedTab": false,
+      "WriterCalls": 0,
+      "ClipboardPreparations": 0,
+      "Verified": false,
+      "PreservedPrefixAndSuffix": true
+    },
+    {
+      "Version": "fixed",
+      "TranslationReady": true,
+      "AcceptedTab": true,
+      "WriterCalls": 1,
+      "ClipboardPreparations": 1,
+      "Verified": true,
+      "PreservedPrefixAndSuffix": true
+    }
+  ]
+}
