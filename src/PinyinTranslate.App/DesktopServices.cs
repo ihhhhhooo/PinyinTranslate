@@ -240,7 +240,7 @@ public sealed class DesktopServices : IAppServices
     public Task<string?> ApplySettingsAsync(AppSettings settings)
     {
         if (IsPreparingForUpdate) return Task.FromResult<string?>("正在准备更新，请稍后再保存设置。");
-        try { settings.ValidateLanguages(); }
+        try { settings.ValidateLanguages(); settings.ValidateSelectionCharacterLimit(); }
         catch (ArgumentException languageError) { return Task.FromResult<string?>(languageError.Message); }
         var old = Settings;
         bool hotkeysChanged = old.ImeHotkey != settings.ImeHotkey || old.SelectionHotkey != settings.SelectionHotkey || old.ScreenshotHotkey != settings.ScreenshotHotkey || _shortcutError is not null;
@@ -266,13 +266,14 @@ public sealed class DesktopServices : IAppServices
         var old = Settings;
         bool inputChanged = old.ImeTargetLanguage != settings.ImeTargetLanguage;
         bool pairChanged = old.SelectionLanguageA != settings.SelectionLanguageA || old.SelectionLanguageB != settings.SelectionLanguageB;
+        bool limitChanged = old.SelectionTranslationCharacterLimit != settings.SelectionTranslationCharacterLimit;
         void Commit()
         {
             lock (_gate)
             {
                 if (old.SelectionAutoCopy != settings.SelectionAutoCopy) Interlocked.Increment(ref _selectionAutoCopyVersion);
                 Settings = settings; _shortcutError = null;
-                if (pairChanged)
+                if (pairChanged || limitChanged)
                 {
                     CancelSelectionRequest(_selectionRequest);
                     _selectionRequest = null; _selectionStatusOwner = null;
@@ -283,12 +284,14 @@ public sealed class DesktopServices : IAppServices
         // setting and revocation of the old generation atomically.
         if (inputChanged) _ime.ChangeTranslationTarget(Commit);
         else Commit();
-        if (pairChanged)
+        if (pairChanged || limitChanged)
         {
             CloseSelectionWindow();
             _selection.SetEnabled(SelectionEnabled && _captureSuspendCount == 0, requireFreshSelection: true);
         }
-        if (inputChanged || pairChanged || old.ScreenshotTargetLanguage != settings.ScreenshotTargetLanguage)
+        if (limitChanged)
+            SetStatus($"自动翻译上限已保存为 {settings.SelectionTranslationCharacterLimit} 字符；划词与复制翻译共用，请重新选择文字。");
+        else if (inputChanged || pairChanged || old.ScreenshotTargetLanguage != settings.ScreenshotTargetLanguage)
             SetStatus("翻译语言已保存；划词请重新选择文字，拼音请继续输入。已打开的截图保留原目标语言。");
     }
     public Task<string?> SetThemeAsync(string theme)
@@ -460,6 +463,12 @@ public sealed class DesktopServices : IAppServices
         try
         {
             if (cts.IsCancellationRequested || !_selection.IsCurrent(snapshot.Version)) return;
+            if (snapshot.Text.Length > settings.SelectionTranslationCharacterLimit)
+            {
+                SetSelectionStatus(snapshot, cts, $"超过自动翻译上限（{settings.SelectionTranslationCharacterLimit} 字符），本次未翻译；正常复制不受影响。",
+                    claim: true, terminal: true);
+                return;
+            }
             SetSelectionStatus(snapshot, cts, snapshot.IsCopiedText ? "正在确认本次复制的文字…" : "正在确认选中文字…", claim: true);
             if (!await _selection.ValidateAsync(snapshot).WaitAsync(validationTimeout, cts.Token).ConfigureAwait(false))
             {
@@ -476,6 +485,13 @@ public sealed class DesktopServices : IAppServices
             var cached = await _cache.GetOrTranslateAsync(DeepSeekClient.Model, direction, "selection-v3", snapshot.Text,
                 async token =>
                 {
+                    // Both selection sources share this gate before any API work.
+                    // Settings changes revoke the request even when a provider's
+                    // cancellation callbacks have not finished running yet.
+                    cts.Token.ThrowIfCancellationRequested();
+                    token.ThrowIfCancellationRequested();
+                    if (snapshot.Text.Length > Settings.SelectionTranslationCharacterLimit)
+                        throw new OperationCanceledException("自动翻译上限已变更。", token);
                     var result = await _selectionTranslator(snapshot.Text, languageA, languageB, token).ConfigureAwait(false);
                     // Validate injected providers too; never cache a mislabeled result.
                     return TextTranslation.Parse(result.ToCacheValue(), languageA, languageB).ToCacheValue();
@@ -494,7 +510,8 @@ public sealed class DesktopServices : IAppServices
             bool Current() => Volatile.Read(ref _disposed) == 0 && !cts.IsCancellationRequested && SelectionEnabled &&
                 !IsPreparingForUpdate && Volatile.Read(ref _captureSuspendCount) == 0 &&
                 ReferenceEquals(Volatile.Read(ref _selectionRequest), cts) && _selection.IsCurrent(snapshot.Version) &&
-                Settings.SelectionLanguageA == languageA && Settings.SelectionLanguageB == languageB;
+                Settings.SelectionLanguageA == languageA && Settings.SelectionLanguageB == languageB &&
+                Settings.SelectionTranslationCharacterLimit == settings.SelectionTranslationCharacterLimit;
             if (!Current()) return;
             string copyFeedback = await CopySelectionTranslationAsync(snapshot, translated.Translation, cts,
                 settings.SelectionAutoCopy, autoCopyVersion, Current).ConfigureAwait(false);

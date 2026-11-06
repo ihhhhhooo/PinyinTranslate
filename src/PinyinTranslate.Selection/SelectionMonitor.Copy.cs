@@ -66,7 +66,7 @@ public sealed partial class SelectionMonitor
                 {
                     string message = result.Status switch
                     {
-                        CopySelectionStatus.TooLong => "复制的文字超过 4000 字，请缩短选择后重试。",
+                        CopySelectionStatus.TooLong => "复制内容过长，本次未翻译；正常复制不受影响，可在设置中查看自动翻译上限。",
                         CopySelectionStatus.Busy or CopySelectionStatus.TimedOut => "本次复制读取超时或忙碌；请重新选择并复制，或使用截图翻译。",
                         _ => "未取得本次新复制的文字，不会翻译旧剪贴板。请重新选择后按 Ctrl+C，或使用截图翻译。"
                     };

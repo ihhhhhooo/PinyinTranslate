@@ -8,8 +8,18 @@ public sealed record AppSettings(string ImeHotkey, string SelectionHotkey, strin
     string SelectionLanguageA = TranslationLanguages.SimplifiedChinese,
     string SelectionLanguageB = TranslationLanguages.English,
     string ScreenshotTargetLanguage = TranslationLanguages.SimplifiedChinese,
-    bool SelectionAutoCopy = true)
+    bool SelectionAutoCopy = true,
+    int SelectionTranslationCharacterLimit = 500)
 {
+    public const int DefaultSelectionCharacterLimit = 500;
+    public const int MaximumSelectionCharacterLimit = 4000;
+
+    public void ValidateSelectionCharacterLimit()
+    {
+        if (SelectionTranslationCharacterLimit is < 1 or > MaximumSelectionCharacterLimit)
+            throw new ArgumentException($"自动翻译上限必须为 1～{MaximumSelectionCharacterLimit} 字符之间的整数。");
+    }
+
     public void ValidateLanguages()
     {
         _ = TranslationLanguages.Get(ImeTargetLanguage);
@@ -17,7 +27,7 @@ public sealed record AppSettings(string ImeHotkey, string SelectionHotkey, strin
         TranslationLanguages.ValidatePair(SelectionLanguageA, SelectionLanguageB);
     }
 
-    // Old settings have no language fields. Invalid/newer identifiers never reach prompts or caches.
+    // Old settings omit language/limit fields. Invalid persisted values use safe defaults.
     public AppSettings NormalizeLanguages()
     {
         string a = TranslationLanguages.IsSupported(SelectionLanguageA) ? SelectionLanguageA : TranslationLanguages.SimplifiedChinese;
@@ -27,7 +37,9 @@ public sealed record AppSettings(string ImeHotkey, string SelectionHotkey, strin
         {
             ImeTargetLanguage = TranslationLanguages.IsSupported(ImeTargetLanguage) ? ImeTargetLanguage : TranslationLanguages.English,
             SelectionLanguageA = a, SelectionLanguageB = b,
-            ScreenshotTargetLanguage = TranslationLanguages.IsSupported(ScreenshotTargetLanguage) ? ScreenshotTargetLanguage : TranslationLanguages.SimplifiedChinese
+            ScreenshotTargetLanguage = TranslationLanguages.IsSupported(ScreenshotTargetLanguage) ? ScreenshotTargetLanguage : TranslationLanguages.SimplifiedChinese,
+            SelectionTranslationCharacterLimit = SelectionTranslationCharacterLimit is >= 1 and <= MaximumSelectionCharacterLimit
+                ? SelectionTranslationCharacterLimit : DefaultSelectionCharacterLimit
         };
     }
 }

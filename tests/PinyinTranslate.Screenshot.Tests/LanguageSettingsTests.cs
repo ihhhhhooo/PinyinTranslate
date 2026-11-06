@@ -28,6 +28,55 @@ public sealed class LanguageSettingsTests
         Assert.Equal("gold", settings.Theme);
         Assert.Equal("Ctrl+Alt+F8", settings.ImeHotkey);
         Assert.True(settings.SelectionAutoCopy);
+        Assert.Equal(500, settings.SelectionTranslationCharacterLimit);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(500)]
+    [InlineData(4000)]
+    public async Task TheSharedCharacterLimitPersistsAndRequiresAFreshSelectionWhenChanged(int limit)
+    {
+        using var fixture = new Fixture();
+        var settings = fixture.Services.Settings with { SelectionTranslationCharacterLimit = limit };
+        Assert.Null(await fixture.Services.ApplySettingsAsync(settings));
+        var saved = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(fixture.SettingsPath))!.NormalizeLanguages();
+        Assert.Equal(settings, saved);
+        Assert.Equal(settings, fixture.Services.Settings);
+        Assert.Equal(limit == 500 ? 0 : 1, fixture.Monitor.ResetCount);
+        if (limit != 500) Assert.True(fixture.Monitor.RequiredFreshSelection);
+        Assert.Null(fixture.Get("_hotkeys"));
+        Assert.Null(fixture.Runtime.Get("_contexts"));
+        Assert.Null(fixture.Runtime.Get("_keyboard"));
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(0)]
+    [InlineData(4001)]
+    [InlineData(int.MaxValue)]
+    public async Task InvalidLimitsAreRejectedBeforeSavingAndInvalidStoredLimitsNormalizeTo500(int limit)
+    {
+        using var fixture = new Fixture();
+        var original = fixture.Services.Settings;
+        var invalid = original with { SelectionTranslationCharacterLimit = limit };
+        Assert.Contains("1～4000", (await fixture.Services.ApplySettingsAsync(invalid))!);
+        Assert.Equal(original, fixture.Services.Settings);
+        Assert.False(File.Exists(fixture.SettingsPath));
+        Assert.Equal(0, fixture.Monitor.ResetCount);
+        var restored = invalid with { Theme = "gold", SelectionAutoCopy = false, SelectionLanguageA = "ja", SelectionLanguageB = "en" };
+        var normalized = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(restored))!.NormalizeLanguages();
+        Assert.Equal(restored with { SelectionTranslationCharacterLimit = 500 }, normalized);
+    }
+
+    [Fact]
+    public async Task AFailedLimitSaveKeepsThePreviousLimitAndDoesNotInvalidateSelection()
+    {
+        using var fixture = new Fixture();
+        fixture.Set("_settingsPath", fixture.DirectoryPath);
+        Assert.NotNull(await fixture.Services.ApplySettingsAsync(fixture.Services.Settings with { SelectionTranslationCharacterLimit = 100 }));
+        Assert.Equal(500, fixture.Services.Settings.SelectionTranslationCharacterLimit);
+        Assert.Equal(0, fixture.Monitor.ResetCount);
     }
 
     [Theory]

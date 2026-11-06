@@ -405,6 +405,7 @@ public sealed class SelectionTranslationFlowTests
     [InlineData("dispose")]
     [InlineData("languages")]
     [InlineData("update")]
+    [InlineData("limit")]
     public async Task AQueuedCopyRechecksAllRevocationBarriersBeforeTouchingTheClipboard(string change)
     {
         using var fixture = new Fixture();
@@ -428,6 +429,7 @@ public sealed class SelectionTranslationFlowTests
             case "screenshot": fixture.Set("_captureSuspendCount", 1); break;
             case "dispose": fixture.Set("_disposed", 1); break;
             case "languages": fixture.ChangePair("en", "ja"); break;
+            case "limit": fixture.ChangeLimit(1); break;
             case "update":
                 var preparation = new UpdatePreparation(() => new(false, true), _ => Task.CompletedTask, _ => Task.CompletedTask);
                 fixture.Set("_updatePreparation", preparation);
@@ -537,6 +539,142 @@ public sealed class SelectionTranslationFlowTests
         }
     }
 
+    [Theory]
+    [InlineData(false, 499)]
+    [InlineData(true, 499)]
+    [InlineData(false, 500)]
+    [InlineData(true, 500)]
+    [InlineData(false, 501)]
+    [InlineData(true, 501)]
+    [InlineData(false, 4000)]
+    [InlineData(true, 4000)]
+    public async Task BothSelectionSourcesShareThe500CharacterLimitAndPreserveTheClipboardWhenOverLimit(bool copied, int length)
+    {
+        using var fixture = new Fixture();
+        string text = new('中', length);
+        string originalClipboard = copied ? text : "An ordinary clipboard value";
+        fixture.Clipboard.Text = originalClipboard;
+        await fixture.Run(Snapshot(1, text) with { IsCopiedText = copied });
+        if (length <= 500)
+        {
+            Assert.Equal(text, Assert.Single(fixture.Translated));
+            Assert.Equal("译文：" + text, Assert.Single(fixture.Clipboard.Copies));
+            Assert.Single(fixture.Shown);
+        }
+        else
+        {
+            Assert.Empty(fixture.Translated);
+            Assert.Empty(fixture.Shown);
+            Assert.Equal(0, fixture.Monitor.Validations);
+            Assert.Equal(0, fixture.Clipboard.Attempts);
+            Assert.Equal(originalClipboard, fixture.Clipboard.Text);
+            Assert.Contains("超过自动翻译上限（500 字符）", fixture.Services.Status);
+            Assert.Contains("正常复制不受影响", fixture.Services.Status);
+            Assert.DoesNotContain("正在翻译", fixture.Services.Status);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SpacesNewlinesPunctuationAndUtf16SurrogatesCountTowardTheSameLimit(bool copied)
+    {
+        using var fixture = new Fixture();
+        string text = new string('a', 497) + " \n。";
+        await fixture.Run(Snapshot(1, text) with { IsCopiedText = copied });
+        Assert.Equal(500, text.Length);
+        Assert.Equal(text, Assert.Single(fixture.Translated));
+        await fixture.Run(Snapshot(2, text + "!") with { IsCopiedText = copied });
+        Assert.Single(fixture.Translated);
+        fixture.ChangeLimit(3);
+        await fixture.Run(Snapshot(10, "😀!") with { IsCopiedText = copied });
+        Assert.Equal("😀!", fixture.Translated.Last());
+        await fixture.Run(Snapshot(11, "😀!!") with { IsCopiedText = copied });
+        Assert.Equal(2, fixture.Translated.Count);
+        Assert.Contains("超过自动翻译上限（3 字符）", fixture.Services.Status);
+    }
+
+    [Theory]
+    [InlineData(false, 1, 1)]
+    [InlineData(true, 1, 2)]
+    [InlineData(false, 4000, 4000)]
+    [InlineData(true, 4000, 4001)]
+    public async Task CustomLimitsAreAppliedToTheEntireSourceAtTheirMinimumAndMaximum(bool copied, int limit, int length)
+    {
+        using var fixture = new Fixture();
+        fixture.ChangeLimit(limit);
+        string text = new('字', length);
+        await fixture.Run(Snapshot(10, text) with { IsCopiedText = copied });
+        if (length <= limit) Assert.Equal(text, Assert.Single(fixture.Translated));
+        else
+        {
+            Assert.Empty(fixture.Translated);
+            Assert.Empty(fixture.Clipboard.Copies);
+            Assert.Contains($"超过自动翻译上限（{limit} 字符）", fixture.Services.Status);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RaisingTheLimitAllowsACompleteTranslationAndLoweringItBlocksEvenACachedResult(bool copied)
+    {
+        using var fixture = new Fixture();
+        string text = new('文', 600);
+        await fixture.Run(Snapshot(1, text) with { IsCopiedText = copied });
+        Assert.Empty(fixture.Translated);
+        fixture.ChangeLimit(1000);
+        await fixture.Run(Snapshot(10, text) with { IsCopiedText = copied });
+        Assert.Equal(text, Assert.Single(fixture.Translated)); // The complete source; no truncation or splitting.
+        Assert.Single(fixture.Clipboard.Copies);
+        fixture.ChangeLimit(500);
+        fixture.Clipboard.Text = "Ordinary copied content";
+        await fixture.Run(Snapshot(20, text) with { IsCopiedText = copied });
+        Assert.Single(fixture.Translated);
+        Assert.Single(fixture.Shown);
+        Assert.Single(fixture.Clipboard.Copies);
+        Assert.Equal("Ordinary copied content", fixture.Clipboard.Text);
+        Assert.Contains("超过自动翻译上限", fixture.Services.Status);
+    }
+
+    [Fact]
+    public async Task SavingALowerLimitDuringValidationCancelsBeforeTheApiCanStart()
+    {
+        using var fixture = new Fixture();
+        var entered = Completion<bool>();
+        var release = Completion<bool>();
+        fixture.Monitor.AsyncValidation = (_, _) => { entered.TrySetResult(true); return release.Task; };
+        Task request = fixture.Run(Snapshot(1, new string('文', 400)));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.ChangeLimit(200);
+        await request.WaitAsync(TimeSpan.FromSeconds(3));
+        release.TrySetResult(true);
+        Assert.Empty(fixture.Translated);
+        Assert.Empty(fixture.Clipboard.Copies);
+        Assert.Contains("200 字符", fixture.Services.Status);
+    }
+
+    [Fact]
+    public async Task SavingALowerLimitDiscardsAnInFlightResponseAndDoesNotOverwriteANewClipboard()
+    {
+        using var fixture = new Fixture();
+        var entered = Completion<bool>();
+        var release = Completion<string>();
+        fixture.Translate = (_, _) => { entered.TrySetResult(true); return release.Task; };
+        Task old = fixture.Run(Snapshot(1, new string('文', 400)));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.ChangeLimit(200);
+        await old.WaitAsync(TimeSpan.FromSeconds(3));
+        fixture.Clipboard.Text = "The user's newer copy";
+        release.TrySetResult("A late translation");
+        Assert.Empty(fixture.Shown);
+        Assert.Empty(fixture.Clipboard.Copies);
+        Assert.Equal("The user's newer copy", fixture.Clipboard.Text);
+        fixture.Translate = (_, _) => Task.FromResult("A new short translation");
+        await fixture.Run(Snapshot(10, "A new short source"));
+        Assert.Equal("A new short translation", Assert.Single(fixture.Clipboard.Copies));
+    }
+
     private static SelectionSnapshot Snapshot(long version, string text) => new(version, 1234, 42, "document-body", text);
     private static TaskCompletionSource<T> Completion<T>() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -604,6 +742,8 @@ public sealed class SelectionTranslationFlowTests
             [Services.Settings with { SelectionLanguageA = a, SelectionLanguageB = b }]);
         public void SetAutoCopy(bool enabled) => typeof(DesktopServices).GetMethod("CommitSettings", PrivateInstance)!.Invoke(Services,
             [Services.Settings with { SelectionAutoCopy = enabled }]);
+        public void ChangeLimit(int limit) => typeof(DesktopServices).GetMethod("CommitSettings", PrivateInstance)!.Invoke(Services,
+            [Services.Settings with { SelectionTranslationCharacterLimit = limit }]);
         public object? Get(string name) => typeof(DesktopServices).GetField(name, PrivateInstance)!.GetValue(Services);
         public void Set(string name, object? value) => typeof(DesktopServices).GetField(name, PrivateInstance)!.SetValue(Services, value);
         public void OtherStatus(string message) => typeof(DesktopServices).GetMethod("SetStatus", PrivateInstance)!.Invoke(Services, [message]);
@@ -618,6 +758,7 @@ public sealed class SelectionTranslationFlowTests
 
     private sealed class FakeClipboardWriter : ITranslationClipboardWriter
     {
+        public string? Text { get; set; }
         public ConcurrentQueue<string> Copies { get; } = new();
         public int Attempts;
         public Func<string, Func<bool>, CancellationToken, Task<TranslationClipboardCopyResult>>? Copy;
@@ -631,6 +772,7 @@ public sealed class SelectionTranslationFlowTests
         {
             if (token.IsCancellationRequested || !current()) return new(false, false, "ScopeExpired");
             Copies.Enqueue(text);
+            Text = text;
             return new(true, true, "Copied");
         }
         public void Dispose() { }

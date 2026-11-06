@@ -81,7 +81,7 @@
         <StackPanel Margin="30,24,30,30" MaxWidth="1000">
             <DockPanel Margin="0,0,0,25">
                 <Button DockPanel.Dock="Left" Click="BackClicked" Content="←  返回" Margin="0,0,18,0" AutomationProperties.Name="返回主界面"/>
-                <StackPanel><TextBlock Text="设置" FontSize="23" FontWeight="Bold"/><TextBlock Text="密钥、启动、软件更新与界面风格" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,3,0,0"/></StackPanel>
+                <StackPanel><TextBlock Text="设置" FontSize="23" FontWeight="Bold"/><TextBlock Text="翻译上限、密钥、启动、软件更新与界面风格" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,3,0,0"/></StackPanel>
             </DockPanel>
             <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"
                     CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="20,18" Margin="0,0,0,16">
@@ -110,6 +110,24 @@
                                   AutomationProperties.Name="开机自启动" ToolTip="登录当前 Windows 账户时自动启动"
                                   Checked="StartupChanged" Unchecked="StartupChanged"/>
                     </Grid>
+                </StackPanel>
+            </Border>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"
+                    CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="20,18" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="自动翻译字数上限" FontSize="18" FontWeight="Bold"/>
+                    <TextBlock Text="自动划词与复制兼容翻译共用。超过上限不调用接口，正常复制不受影响。"
+                               Foreground="{DynamicResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,12"/>
+                    <WrapPanel VerticalAlignment="Center">
+                        <TextBox x:Name="SelectionLimitBox" Width="112" MaxLength="10" TextChanged="SelectionLimitEdited"
+                                 AutomationProperties.Name="自动翻译字符上限" ToolTip="默认 500，可设置 1～4000 字符，空格、换行和标点计入。"/>
+                        <TextBlock Text="字符" VerticalAlignment="Center" Margin="9,0,16,0"/>
+                        <Button x:Name="SaveSelectionLimitButton" Content="保存上限" Click="SaveSelectionLimitClicked"/>
+                    </WrapPanel>
+                    <TextBlock Text="默认 500，可设置 1～4000 字符；含空格、换行与标点。保存后请重新选择文字。"
+                               Foreground="{DynamicResource Muted}" TextWrapping="Wrap" FontSize="11" Margin="0,9,0,0"/>
+                    <TextBlock x:Name="SelectionLimitStatus" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"
+                               AutomationProperties.LiveSetting="Polite"/>
                 </StackPanel>
             </Border>
             <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"

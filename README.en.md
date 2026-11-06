@@ -20,6 +20,8 @@ Languages: Chinese (Simplified/Traditional), English, Japanese, Korean, French, 
 
 The **译文自动复制** (Auto-copy translation) switch in the text translation section is on by default and saves immediately. Turn it off to copy results manually by clicking them. Also includes in-app updates, usage statistics, and multiple themes.
 
+Automatic selection translation and copy-to-translate share a **500-character** default limit. Adjust it from 1 to 4000 under **设置 → 自动翻译字数上限** (Settings → Automatic translation character limit). Longer text is not sent to the API; normal copying still works.
+
 ## Demo
 
 <!-- Video slot: replace this placeholder with your video link or a clickable cover. -->

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -27,6 +28,9 @@ public partial class AppearancePage : UserControl, IDisposable
     private bool _disposed;
     private bool _keyDirty;
     private bool _savingKey;
+    private bool _loadingSelectionLimit = true;
+    private bool _selectionLimitDirty;
+    private bool _savingSelectionLimit;
 
     public event EventHandler? BackRequested;
 
@@ -50,7 +54,7 @@ public partial class AppearancePage : UserControl, IDisposable
         try
         {
             var lifecycle = new DesktopUpdateLifecycle(services, Dispatcher,
-                () => !_keyDirty && !_savingKey && !_applying && _canRestart(), () => _disposed);
+                () => !_keyDirty && !_savingKey && !_selectionLimitDirty && !_savingSelectionLimit && !_applying && _canRestart(), () => _disposed);
             _updates = new UpdateService(new VelopackBackend(), lifecycle);
             _updates.StateChanged += UpdateStateChanged;
             RenderUpdate(_updates.State);
@@ -159,6 +163,7 @@ public partial class AppearancePage : UserControl, IDisposable
         SaveKeyButton.IsEnabled = !preparing && !_savingKey;
         ThemeCards.IsEnabled = !preparing;
         StartupToggle.IsEnabled = !preparing;
+        SelectionLimitBox.IsEnabled = SaveSelectionLimitButton.IsEnabled = !preparing && !_savingSelectionLimit;
     }
 
     private async void CheckUpdateClicked(object sender, RoutedEventArgs e)
@@ -173,9 +178,9 @@ public partial class AppearancePage : UserControl, IDisposable
 
     private async void InstallUpdateClicked(object sender, RoutedEventArgs e)
     {
-        if (_keyDirty || _savingKey || _applying)
+        if (_keyDirty || _savingKey || _selectionLimitDirty || _savingSelectionLimit || _applying)
         {
-            UpdateStatusText.Text = "请先保存修改的密钥，并等待设置保存完成，再更新并重启。";
+            UpdateStatusText.Text = "请先保存修改的密钥和自动翻译上限，并等待设置保存完成，再更新并重启。";
             return;
         }
         if (!_canRestart())
@@ -256,9 +261,61 @@ public partial class AppearancePage : UserControl, IDisposable
 
     public void RefreshSelection()
     {
+        RefreshTranslationLimit();
         foreach (var choice in _choices) choice.IsCurrent = choice.Id == _services.Settings.Theme;
         ThemeStatus.Text = "当前使用：" + ThemeManager.DisplayName(_services.Settings.Theme) + "。切换会立即生效。";
         ThemeStatus.SetResourceReference(TextBlock.ForegroundProperty, "Muted");
+    }
+
+    private void RefreshTranslationLimit()
+    {
+        if (_selectionLimitDirty || _savingSelectionLimit) return;
+        _loadingSelectionLimit = true;
+        try
+        {
+            SelectionLimitBox.Text = _services.Settings.SelectionTranslationCharacterLimit.ToString(CultureInfo.InvariantCulture);
+            SetSelectionLimitStatus($"当前上限：{_services.Settings.SelectionTranslationCharacterLimit} 字符");
+        }
+        finally { _loadingSelectionLimit = false; }
+    }
+
+    private void SelectionLimitEdited(object sender, TextChangedEventArgs e)
+    {
+        if (_loadingSelectionLimit || !IsInitialized) return;
+        _selectionLimitDirty = SelectionLimitBox.Text.Trim() != _services.Settings.SelectionTranslationCharacterLimit.ToString(CultureInfo.InvariantCulture);
+        SetSelectionLimitStatus(_selectionLimitDirty ? "修改后请点击“保存上限”" : $"当前上限：{_services.Settings.SelectionTranslationCharacterLimit} 字符");
+    }
+
+    private async void SaveSelectionLimitClicked(object sender, RoutedEventArgs e)
+    {
+        if (_savingSelectionLimit || _disposed || _services.IsPreparingForUpdate) return;
+        if (!int.TryParse(SelectionLimitBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int limit) ||
+            limit is < 1 or > AppSettings.MaximumSelectionCharacterLimit)
+        {
+            SetSelectionLimitStatus($"请输入 1～{AppSettings.MaximumSelectionCharacterLimit} 之间的整数。", true);
+            return;
+        }
+        _savingSelectionLimit = true;
+        SelectionLimitBox.IsEnabled = SaveSelectionLimitButton.IsEnabled = false;
+        try
+        {
+            string? error = await _services.ApplySettingsAsync(_services.Settings with { SelectionTranslationCharacterLimit = limit });
+            if (error is not null) { SetSelectionLimitStatus(error, true); return; }
+            _selectionLimitDirty = false;
+            SetSelectionLimitStatus($"已保存：{limit} 字符；划词与复制翻译共用，请重新选择文字。");
+        }
+        catch (Exception) { SetSelectionLimitStatus("保存上限失败，请重试。", true); }
+        finally
+        {
+            _savingSelectionLimit = false;
+            if (!_disposed) SelectionLimitBox.IsEnabled = SaveSelectionLimitButton.IsEnabled = !_services.IsPreparingForUpdate;
+        }
+    }
+
+    private void SetSelectionLimitStatus(string message, bool error = false)
+    {
+        SelectionLimitStatus.Text = message;
+        SelectionLimitStatus.SetResourceReference(TextBlock.ForegroundProperty, error ? "ErrorInk" : "Muted");
     }
 
     private async void SelectThemeClicked(object sender, RoutedEventArgs e)
