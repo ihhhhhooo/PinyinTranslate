@@ -7,12 +7,15 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <StartupObject>PinyinTranslate.App.Program</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="PinyinTranslate.Screenshot.Tests" />
     <ProjectReference Include="..\PinyinTranslate.Core\PinyinTranslate.Core.csproj" />
     <ProjectReference Include="..\PinyinTranslate.Selection\PinyinTranslate.Selection.csproj" />
     <ProjectReference Include="..\PinyinTranslate.Input\PinyinTranslate.Input.csproj" />
+    <ProjectReference Include="..\PinyinTranslate.Update\PinyinTranslate.Update.csproj" />
     <!-- Keep the managed bridge DLL with its transitive apphost/runtimeconfig outputs. -->
     <ProjectReference Include="..\PinyinTranslate.ImeBridge\PinyinTranslate.ImeBridge.csproj" />
   </ItemGroup>

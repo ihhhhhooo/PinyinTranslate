@@ -9,7 +9,7 @@ namespace PinyinTranslate.Input;
 /// nonblocking queues only. Every remote event is fenced by session/epoch/input sequence.
 /// No credentials or document text are sent to the bridge.
 /// </summary>
-public sealed class CandidateObserverClient : ICandidateObserver
+public sealed class CandidateObserverClient : ICandidateObserver, ICandidateObserverShutdown
 {
     private readonly object _gate = new();
     private readonly Process _target;
@@ -19,6 +19,10 @@ public sealed class CandidateObserverClient : ICandidateObserver
     private readonly string? _bridgePath;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly Task _completion;
+    private Process? _ownedBridgeProcess;
+    private OwnedChildProcessShutdown? _ownedBridgeShutdown;
+    private readonly SemaphoreSlim _stopSerial = new(1, 1);
     private readonly Channel<CandidateBridgeMessage> _commands = Channel.CreateBounded<CandidateBridgeMessage>(
         new BoundedChannelOptions(256) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait, AllowSynchronousContinuations = false });
     private readonly Channel<Action> _notifications = Channel.CreateUnbounded<Action>(
@@ -54,10 +58,12 @@ public sealed class CandidateObserverClient : ICandidateObserver
         _runtimeId = allowedFocusRuntimeId ?? "";
         _bridgePath = bridgePath;
         _ = Task.Run(DrainNotificationsAsync);
-        _ = Task.Run(RunAsync);
+        _completion = Task.Run(RunAsync);
+        _ = ObserveCompletionAsync(_completion);
     }
 
     public Task<bool> Ready => _ready.Task;
+    public Task Completion => _completion;
     public bool IsRunning { get { lock (_gate) return _disposed == 0 && _failed == 0 && _running; } }
     public CandidateObserverFailure? Failure => Volatile.Read(ref _failure);
     public string StartupStage => Volatile.Read(ref _startupStage);
@@ -157,6 +163,7 @@ public sealed class CandidateObserverClient : ICandidateObserver
         Process? bridge = null;
         try
         {
+            _lifetime.Token.ThrowIfCancellationRequested();
             StartupStageChanged("pipe-create");
             string pipeName = $"PinyinTranslate.ImeBridge.{Environment.ProcessId}.{Guid.NewGuid():N}";
             using var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
@@ -170,7 +177,10 @@ public sealed class CandidateObserverClient : ICandidateObserver
                 if (Environment.GetEnvironmentVariable(name) is { } value) start.Environment[name] = value;
             foreach (string value in new[] { "--pipe", pipeName, "--parent", Environment.ProcessId.ToString(), "--session", _sessionId }) start.ArgumentList.Add(value);
             StartupStageChanged("process-start");
+            _lifetime.Token.ThrowIfCancellationRequested();
             bridge = Process.Start(start) ?? throw new InvalidOperationException("Could not start IME bridge.");
+            _ownedBridgeProcess = bridge;
+            _ownedBridgeShutdown = new(new HeldBridgeProcess(bridge));
             using var startup = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
             startup.CancelAfter(TimeSpan.FromSeconds(6));
             StartupStageChanged("pipe-connect");
@@ -239,12 +249,8 @@ public sealed class CandidateObserverClient : ICandidateObserver
             _ready.TrySetResult(false);
             await _lifetime.CancelAsync().ConfigureAwait(false);
             _commands.Writer.TryComplete();
-            if (bridge is not null)
-            {
-                try { if (!bridge.HasExited) bridge.Kill(); } catch (Exception) { }
-                bridge.Dispose();
-            }
-            _target.Dispose();
+            try { await ConfirmOwnedBridgeExitAsync(CancellationToken.None).ConfigureAwait(false); }
+            finally { _target.Dispose(); }
         }
     }
 
@@ -411,5 +417,65 @@ public sealed class CandidateObserverClient : ICandidateObserver
         _commands.Writer.TryComplete();
         _ = _lifetime.CancelAsync();
         _notifications.Writer.TryComplete();
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken = default)
+    {
+        await _stopSerial.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            Dispose();
+            try { await _completion.WaitAsync(cancellationToken).ConfigureAwait(false); }
+            catch (Exception) when (!cancellationToken.IsCancellationRequested)
+            {
+                // A bounded earlier termination attempt can be retried against the
+                // same held process object; never open or kill a process by PID here.
+                await ConfirmOwnedBridgeExitAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+        finally { _stopSerial.Release(); }
+    }
+
+    private async Task ConfirmOwnedBridgeExitAsync(CancellationToken cancellationToken)
+    {
+        if (_ownedBridgeShutdown is { } shutdown)
+        {
+            await shutdown.StopAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+        if (_ownedBridgeProcess is not { } process) return;
+        if (process.HasExited) { process.Dispose(); return; }
+        // Retain ownership if obtaining initial metadata failed during startup.
+        // The retry still uses the original Process and held kernel handle.
+        shutdown = new(new HeldBridgeProcess(process));
+        _ownedBridgeShutdown = shutdown;
+        await shutdown.StopAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task ObserveCompletionAsync(Task task)
+    {
+        try { await task.ConfigureAwait(false); } catch (Exception) { }
+    }
+
+    private sealed class HeldBridgeProcess : IOwnedChildProcess
+    {
+        private readonly Process process;
+        private readonly Microsoft.Win32.SafeHandles.SafeProcessHandle handle;
+        public HeldBridgeProcess(Process process)
+        {
+            this.process = process;
+            handle = process.SafeHandle;
+        }
+        public int ProcessId => process.Id;
+        public long StartTimeUtcTicks => process.StartTime.ToUniversalTime().Ticks;
+        public bool HasExited => process.HasExited;
+        public void Kill()
+        {
+            if (handle.IsClosed || handle.IsInvalid) throw new InvalidOperationException("Owned process handle is unavailable.");
+            process.Kill();
+            GC.KeepAlive(handle);
+        }
+        public Task WaitForExitAsync(CancellationToken cancellationToken) => process.WaitForExitAsync(cancellationToken);
+        public void Dispose() => process.Dispose();
     }
 }

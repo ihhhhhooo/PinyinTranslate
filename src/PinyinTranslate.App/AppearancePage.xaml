@@ -81,7 +81,7 @@
         <StackPanel Margin="30,24,30,30" MaxWidth="1000">
             <DockPanel Margin="0,0,0,25">
                 <Button DockPanel.Dock="Left" Click="BackClicked" Content="←  返回" Margin="0,0,18,0" AutomationProperties.Name="返回主界面"/>
-                <StackPanel><TextBlock Text="设置" FontSize="23" FontWeight="Bold"/><TextBlock Text="密钥、启动与界面风格" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,3,0,0"/></StackPanel>
+                <StackPanel><TextBlock Text="设置" FontSize="23" FontWeight="Bold"/><TextBlock Text="密钥、启动、软件更新与界面风格" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,3,0,0"/></StackPanel>
             </DockPanel>
             <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"
                     CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="20,18" Margin="0,0,0,16">
@@ -96,7 +96,7 @@
                             <TextBlock x:Name="KeyPlaceholder" Text="输入 API Key" Foreground="{DynamicResource Placeholder}" IsHitTestVisible="False"
                                        Margin="11,0,0,0" VerticalAlignment="Center"/>
                         </Grid>
-                        <Button Grid.Column="1" Content="保存密钥" Click="SaveKeyClicked" Margin="10,0,0,0"/>
+                        <Button x:Name="SaveKeyButton" Grid.Column="1" Content="保存密钥" Click="SaveKeyClicked" Margin="10,0,0,0"/>
                     </Grid>
                     <TextBlock x:Name="KeyStatus" Foreground="{DynamicResource Muted}" FontSize="12" TextWrapping="Wrap" Margin="0,8,0,0"/>
                     <Border Height="1" Background="{DynamicResource Divider}" Opacity="0.5" Margin="0,14"/>
@@ -110,6 +110,24 @@
                                   AutomationProperties.Name="开机自启动" ToolTip="登录当前 Windows 账户时自动启动"
                                   Checked="StartupChanged" Unchecked="StartupChanged"/>
                     </Grid>
+                </StackPanel>
+            </Border>
+            <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"
+                    CornerRadius="{DynamicResource CardCornerRadius}" Effect="{DynamicResource PanelShadow}" Padding="20,18" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="软件更新" FontSize="18" FontWeight="Bold"/>
+                    <TextBlock x:Name="UpdateVersionText" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,0"/>
+                    <TextBlock x:Name="UpdateStatusText" Text="正在读取版本信息…" TextWrapping="Wrap" FontSize="13" Margin="0,12,0,0" AutomationProperties.LiveSetting="Polite"/>
+                    <ProgressBar x:Name="UpdateProgress" Minimum="0" Maximum="100" Height="6" Margin="0,12,0,0" Visibility="Collapsed" AutomationProperties.Name="更新下载进度"/>
+                    <TextBox x:Name="UpdateNotes" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" MaxHeight="200" Margin="0,12,0,0" Visibility="Collapsed" AutomationProperties.Name="新版说明"/>
+                    <WrapPanel Margin="0,14,0,0">
+                        <Button x:Name="CheckUpdateButton" Content="检查更新" Click="CheckUpdateClicked" Margin="0,0,8,6" IsEnabled="False"/>
+                        <Button x:Name="DownloadUpdateButton" Content="下载更新" Click="DownloadUpdateClicked" Margin="0,0,8,6" Visibility="Collapsed"/>
+                        <Button x:Name="InstallUpdateButton" Content="更新并重启" Click="InstallUpdateClicked" Margin="0,0,8,6" Visibility="Collapsed"/>
+                        <Button x:Name="CancelUpdateButton" Content="取消" Click="CancelUpdateClicked" Margin="0,0,8,6" Visibility="Collapsed"/>
+                        <Button Content="打开发布页" Click="OpenReleasesClicked" Margin="0,0,0,6"/>
+                    </WrapPanel>
+                    <TextBlock Text="从项目 GitHub Releases 下载稳定版。下载完成后由你点击重启升级，保留本机密钥和设置。" Foreground="{DynamicResource Muted}" TextWrapping="Wrap" FontSize="12" Margin="0,4,0,0"/>
                 </StackPanel>
             </Border>
             <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource CardBorderThickness}"

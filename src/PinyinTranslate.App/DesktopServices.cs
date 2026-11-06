@@ -41,8 +41,10 @@ public sealed class DesktopServices : IAppServices
     private long _lastInvalidated;
     private long _selectionToggleVersion;
     private int _captureSuspendCount;
+    private readonly UpdatePreparation? _updatePreparation;
     public bool ImeEnabled => _ime.Enabled;
     public bool SelectionEnabled { get; private set; }
+    public bool IsPreparingForUpdate => _updatePreparation?.IsActive == true;
     public string Status
     {
         get
@@ -98,6 +100,7 @@ public sealed class DesktopServices : IAppServices
         _selection.Invalidated += SelectionInvalidated;
         _selection.SelectionChanged += SelectionChanged;
         _selection.StatusChanged += SelectionStatus;
+        _updatePreparation = new(() => new(_ime.Enabled, SelectionEnabled), PauseForUpdateAsync, RestoreAfterUpdateFailureAsync);
     }
     private AppSettings LoadSettings()
     {
@@ -115,7 +118,7 @@ public sealed class DesktopServices : IAppServices
     }
     private void HotkeyFired(int id)
     {
-        if (Volatile.Read(ref _disposed) != 0) return;
+        if (Volatile.Read(ref _disposed) != 0 || IsPreparingForUpdate) return;
         if (id == 1) _ = ToggleImeFromHotkeyAsync();
         if (id == 2) _ = ToggleSelectionFromHotkeyAsync();
         if (id == 3) ScreenshotRequested?.Invoke(this, EventArgs.Empty);
@@ -132,6 +135,7 @@ public sealed class DesktopServices : IAppServices
     }
     public async Task<string?> SetImeEnabledAsync(bool enabled)
     {
+        if (IsPreparingForUpdate) return "正在准备更新，请稍后再切换翻译模式。";
         var error = await _ime.SetEnabledAsync(enabled);
         StateChanged?.Invoke(this, EventArgs.Empty);
         return error;
@@ -168,7 +172,11 @@ public sealed class DesktopServices : IAppServices
         StateChanged?.Invoke(this, EventArgs.Empty);
     }
     public async Task<string?> SetSelectionEnabledAsync(bool enabled)
+        => await SetSelectionEnabledCoreAsync(enabled, restoring: false);
+
+    private async Task<string?> SetSelectionEnabledCoreAsync(bool enabled, bool restoring)
     {
+        if (!restoring && IsPreparingForUpdate) return "正在准备更新，请稍后再切换翻译模式。";
         long toggleVersion = Interlocked.Increment(ref _selectionToggleVersion);
         if (Volatile.Read(ref _disposed) != 0) return "程序正在退出。";
         if (enabled)
@@ -176,6 +184,7 @@ public sealed class DesktopServices : IAppServices
             try { if (!await _selection.Ready.WaitAsync(TimeSpan.FromSeconds(3))) return "选区监听无法启动。"; }
             catch (TimeoutException) { return "选区监听启动超时，未开启。"; }
             if (Volatile.Read(ref _disposed) != 0) return "程序正在退出。";
+            if (!restoring && IsPreparingForUpdate) return "正在准备更新，请稍后再开启翻译。";
             if (Interlocked.Read(ref _selectionToggleVersion) != toggleVersion) return null;
         }
         SelectionEnabled = enabled; _selection.SetEnabled(enabled && _captureSuspendCount == 0);
@@ -183,8 +192,43 @@ public sealed class DesktopServices : IAppServices
         if (!enabled) CloseSelectionWindow();
         return null;
     }
+
+    /// <summary>Called on the UI dispatcher; preparation is reversible until normal application shutdown.</summary>
+    public Task PrepareForUpdateAsync(CancellationToken cancellationToken)
+    {
+        if (Volatile.Read(ref _disposed) != 0) throw new InvalidOperationException("程序正在退出，无法准备更新。");
+        return _updatePreparation?.PrepareAsync(cancellationToken) ?? Task.CompletedTask;
+    }
+
+    public Task ResumeAfterUpdateFailureAsync() => _updatePreparation?.ResumeAsync() ?? Task.CompletedTask;
+
+    private async Task PauseForUpdateAsync(CancellationToken cancellationToken)
+    {
+        // Blocked by IsPreparingForUpdate before this method is entered.
+        // Revoke in-flight enable and selection operations before awaiting bridges.
+        Interlocked.Increment(ref _selectionToggleVersion);
+        SelectionEnabled = false;
+        _selection.SetEnabled(false);
+        lock (_gate) CancelSelectionRequest(_selectionRequest);
+        CloseSelectionWindow();
+        _imePreview?.Hide();
+        StateChanged?.Invoke(this, EventArgs.Empty);
+        await _ime.StopForUpdateAsync(cancellationToken);
+    }
+
+    private async Task RestoreAfterUpdateFailureAsync(UpdateModeState modes)
+    {
+        if (Volatile.Read(ref _disposed) != 0) return;
+        _ime.ResumeAfterUpdateFailure();
+        string? imeError = await _ime.SetEnabledAsync(modes.ImeEnabled);
+        string? selectionError = await SetSelectionEnabledCoreAsync(modes.SelectionEnabled, restoring: true);
+        StateChanged?.Invoke(this, EventArgs.Empty);
+        if (imeError is not null || selectionError is not null)
+            throw new InvalidOperationException("部分翻译模式未能恢复，请在主界面重新开启。");
+    }
     public Task<string?> ApplySettingsAsync(AppSettings settings)
     {
+        if (IsPreparingForUpdate) return Task.FromResult<string?>("正在准备更新，请稍后再保存设置。");
         var old = Settings; var error = _hotkeys.Apply(settings);
         if (error != null) return Task.FromResult<string?>(error);
         try
@@ -202,6 +246,7 @@ public sealed class DesktopServices : IAppServices
     }
     public Task<string?> SetThemeAsync(string theme)
     {
+        if (IsPreparingForUpdate) return Task.FromResult<string?>("正在准备更新，请稍后再切换外观。");
         if (!ThemeManager.IsSupported(theme)) return Task.FromResult<string?>("无法识别所选风格。");
         if (Settings.Theme == theme) return Task.FromResult<string?>(null);
         try
@@ -235,11 +280,13 @@ public sealed class DesktopServices : IAppServices
     }
     public Task<string?> SaveApiKeyAsync(string key)
     {
+        if (IsPreparingForUpdate) return Task.FromResult<string?>("正在准备更新，请稍后再保存密钥。");
         try { SecretStore.Save(_keyPath, key); return Task.FromResult<string?>(null); }
         catch (Exception e) { return Task.FromResult<string?>("密钥保存失败：" + e.Message); }
     }
     public IDisposable SuspendSelectionForCapture()
     {
+        if (IsPreparingForUpdate) throw new InvalidOperationException("正在准备更新，请稍后再截图。");
         if (!_dispatcher.CheckAccess()) throw new InvalidOperationException("截图必须在界面线程启动。");
         _captureSuspendCount++;
         if (_captureSuspendCount == 1) { _selection.SetEnabled(false); CloseSelectionWindow(); }
@@ -252,12 +299,13 @@ public sealed class DesktopServices : IAppServices
         {
             var value = Interlocked.Exchange(ref _owner, null);
             if (value == null) return;
-            if (--value._captureSuspendCount == 0 && value.SelectionEnabled && Volatile.Read(ref value._disposed) == 0)
+            if (--value._captureSuspendCount == 0 && value.SelectionEnabled && Volatile.Read(ref value._disposed) == 0 && !value.IsPreparingForUpdate)
                 value._selection.SetEnabled(true, requireFreshSelection: true);
         }
     }
     public async Task<ScreenshotResult> TranslateScreenshotAsync(byte[] png, CancellationToken cancellationToken)
     {
+        if (IsPreparingForUpdate) throw new InvalidOperationException("正在准备更新，请稍后再截图翻译。");
         try
         {
             var image = await _client.TranslateImageAsync(png, "截图翻译", cancellationToken).ConfigureAwait(false);
@@ -329,11 +377,11 @@ public sealed class DesktopServices : IAppServices
     }
     private void SelectionChanged(SelectionSnapshot snapshot)
     {
-        if (!_selection.IsCurrent(snapshot.Version) || Volatile.Read(ref _disposed) != 0) return;
+        if (!_selection.IsCurrent(snapshot.Version) || Volatile.Read(ref _disposed) != 0 || IsPreparingForUpdate) return;
         var cts = new CancellationTokenSource();
         lock (_gate)
         {
-            if (!_selection.IsCurrent(snapshot.Version)) { cts.Dispose(); return; }
+            if (!_selection.IsCurrent(snapshot.Version) || IsPreparingForUpdate) { cts.Dispose(); return; }
             CancelSelectionRequest(_selectionRequest); _selectionRequest = cts; _selectionRequestVersion = snapshot.Version;
         }
         _ = TranslateSelectionAsync(snapshot, cts);

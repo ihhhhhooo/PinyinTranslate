@@ -27,6 +27,9 @@ internal sealed class ImeRuntimeController : IDisposable
     private readonly InputPointerHook _pointer;
     private readonly int? _testProcessId;
     private readonly Func<Process, string, string, ICandidateObserver> _observerFactory;
+    // Null only in legacy uninitialized headless fixtures.
+    private readonly UpdateQuiescenceTracker? _updateQuiescence = new();
+    private readonly Func<Task>? _disableForUpdateAsync;
     private readonly object _diagnosticGate = new();
     private CancellationTokenSource? _pollCancellation;
     private Binding? _binding;
@@ -46,10 +49,11 @@ internal sealed class ImeRuntimeController : IDisposable
     private string? _unsupportedReason;
     private long _bindingRetryAt, _lastBindingFailureAt;
     private int _bindingFailureCount;
-    private int _enabled, _disposed;
+    private int _enabled, _disposed, _updateStopped;
     private sealed record Binding(Process Process, ICandidateObserver Observer, EditableContextIdentity Identity)
     {
         public bool Activated { get; set; }
+        public UpdateQuiescenceTracker.Resource? UpdateLifetime { get; set; }
     }
     private sealed record Publication(Binding Binding, CandidateObservation Source, CandidateObservation Published,
         EditableContextSnapshot Context, BaselineAnchor? Anchor, long InputVersion);
@@ -61,7 +65,7 @@ internal sealed class ImeRuntimeController : IDisposable
     public event Action<string>? StatusChanged;
     public event Action<string>? TranslationCopied;
     public event Action? CopyPresentationChanged;
-    public bool Enabled => Volatile.Read(ref _enabled) == 1 && Volatile.Read(ref _disposed) == 0;
+    public bool Enabled => Volatile.Read(ref _enabled) == 1 && Volatile.Read(ref _disposed) == 0 && Volatile.Read(ref _updateStopped) == 0;
     public CandidateTranslationState State => _coordinator.State;
     public bool CanAcceptCurrent { get { lock (_gate) return !_copyOnly && _publication is { } current && CanAcceptPublicationLocked(current); } }
     public string CurrentAcceptanceHint { get { lock (_gate) return AcceptanceHintLocked(); } }
@@ -86,6 +90,7 @@ internal sealed class ImeRuntimeController : IDisposable
         _coordinator.Faulted += OnCoordinatorFaulted;
         _keyboard = new(TryAcceptTab, OnKeyStroke);
         _pointer = new(OnPointerStroke);
+        _disableForUpdateAsync = () => SetEnabledAsync(false);
         Diagnose("constructed");
     }
 
@@ -95,6 +100,7 @@ internal sealed class ImeRuntimeController : IDisposable
         lock (_gate)
         {
             if (_disposed != 0) return "程序正在退出。";
+            if (enabled && _updateStopped != 0) return "正在准备更新，请稍后再开启翻译。";
             request = ++_enableRequestVersion;
         }
         Diagnose("mode.request", $"request={request};enable={enabled}");
@@ -122,6 +128,7 @@ internal sealed class ImeRuntimeController : IDisposable
         lock (_gate)
         {
             if (_disposed != 0) return "程序正在退出。";
+            if (enabled && _updateStopped != 0) return "正在准备更新，请稍后再开启翻译。";
             if (request != _enableRequestVersion) return null;
             previous = _pollCancellation;
             _pollCancellation = enabled ? new() : null;
@@ -156,6 +163,31 @@ internal sealed class ImeRuntimeController : IDisposable
             ? "自动翻译复制已关闭；剪贴板内容保留。"
             : "中译英模式已关闭，Tab 保持原行为。");
         return null;
+    }
+
+    public async Task StopForUpdateAsync(CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (_disposed != 0) throw new InvalidOperationException("程序正在退出，无法准备更新。");
+            Volatile.Write(ref _updateStopped, 1);
+            _updateQuiescence?.Pause();
+            ++_enableRequestVersion;
+        }
+        // Admission is already closed before any asynchronous cancellation.
+        await (_disableForUpdateAsync?.Invoke() ?? SetEnabledAsync(false)).ConfigureAwait(false);
+        if (_updateQuiescence is { } quiescence)
+            await quiescence.PauseAndDrainAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public void ResumeAfterUpdateFailure()
+    {
+        lock (_gate)
+        {
+            if (_disposed != 0) return;
+            _updateQuiescence?.Resume();
+            Volatile.Write(ref _updateStopped, 0);
+        }
     }
 
     private bool IsEnableRequestCurrent(long request)
@@ -258,6 +290,18 @@ internal sealed class ImeRuntimeController : IDisposable
 
     private async Task BindAsync(EditableContextSnapshot context, long epoch, CancellationToken token)
     {
+        IDisposable? operation;
+        lock (_gate)
+        {
+            if (!Enabled || _updateStopped != 0 || epoch != _epoch || token.IsCancellationRequested) return;
+            operation = _updateQuiescence?.TryBeginOperation();
+            if (_updateQuiescence is not null && operation is null) return;
+        }
+        using (operation) await BindCoreAsync(context, epoch, token).ConfigureAwait(false);
+    }
+
+    private async Task BindCoreAsync(EditableContextSnapshot context, long epoch, CancellationToken token)
+    {
         Binding? previous;
         var identity = EditableContextIdentity.From(context);
         lock (_gate)
@@ -281,6 +325,7 @@ internal sealed class ImeRuntimeController : IDisposable
             observer = _observerFactory(process, context.AutomationId, context.FocusRuntimeId);
             var binding = new Binding(process, observer, identity);
             provisional = binding;
+            binding.UpdateLifetime = _updateQuiescence?.Register(() => StopDetachedBindingAsync(binding));
             observer.Invalidated += _ => OnCandidateInvalidated(binding);
             observer.FocusInvalidated += () => OnFocusInvalidated(binding);
             observer.Observed += candidate => { _ = ObserveAsync(binding, candidate); };
@@ -339,7 +384,8 @@ internal sealed class ImeRuntimeController : IDisposable
         {
             if (ownedByRuntime && !activated && provisional is not null)
                 DetachBinding(epoch, provisional);
-            observer?.Dispose(); process?.Dispose();
+            if (observer is not null && provisional is not null) ReleaseDetachedBinding(provisional);
+            else { observer?.Dispose(); process?.Dispose(); }
         }
     }
 
@@ -452,18 +498,31 @@ internal sealed class ImeRuntimeController : IDisposable
         {
             // A mode toggle may detach the active binding after SetValue. Keep
             // its focus observer alive until caret-only completion finishes.
-            if (_disposed == 0 && ReferenceEquals(old, _writingBinding))
+            if (_disposed == 0 && _updateStopped == 0 && ReferenceEquals(old, _writingBinding))
             { _deferredRelease = old; return; }
         }
         ReleaseDetachedBinding(old);
     }
     private static void ReleaseDetachedBinding(Binding? old)
     {
-        if (old is not null) _ = Task.Run(() =>
+        if (old is null) return;
+        _ = ObserveBindingStopAsync(old.UpdateLifetime?.StopAsync() ?? Task.Run(() => StopDetachedBindingAsync(old)));
+    }
+
+    private static async Task StopDetachedBindingAsync(Binding binding)
+    {
+        try
         {
-            try { old.Observer.Dispose(); } catch (Exception) { }
-            finally { old.Process.Dispose(); }
-        });
+            if (binding.Observer is ICandidateObserverShutdown asynchronous)
+                await asynchronous.StopAsync().ConfigureAwait(false);
+            else binding.Observer.Dispose();
+        }
+        finally { binding.Process.Dispose(); }
+    }
+
+    private static async Task ObserveBindingStopAsync(Task task)
+    {
+        try { await task.ConfigureAwait(false); } catch (Exception) { }
     }
 
     private void OnFocusInvalidated(Binding binding)

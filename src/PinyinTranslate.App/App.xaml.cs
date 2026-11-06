@@ -17,6 +17,8 @@ public partial class App : Application
             MessageBox.Show("PinyinTranslate 已在运行。", "PinyinTranslate", MessageBoxButton.OK, MessageBoxImage.Information);
             Shutdown(); return;
         }
+        // Preserve an existing opt-in after the one-time move to a managed portable folder.
+        try { StartupManager.RefreshEnabledForCurrentPortable(); } catch (Exception) { }
         var window = new MainWindow(ServicesFactory());
         MainWindow = window;
         window.Show();

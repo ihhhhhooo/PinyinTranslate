@@ -9,6 +9,7 @@ public partial class MainWindow : Window
     private readonly IAppServices _services;
     private bool _refreshing;
     private bool _capturing;
+    private bool _savingSettings;
     private string _visualTheme = "light";
     private AppearancePage? _settingsPage;
     private StatisticsPage? _statisticsPage;
@@ -30,7 +31,7 @@ public partial class MainWindow : Window
         SelectionShortcut.Text = settings.SelectionHotkey;
         ScreenshotShortcut.Text = settings.ScreenshotHotkey;
         RefreshState();
-        Closed += (_, _) => { _shutdown.Cancel(); _services.StateChanged -= ServicesOnStateChanged; _services.ScreenshotRequested -= ServicesOnScreenshotRequested; _statisticsPage?.Dispose(); _settingsPage?.ClearSensitiveData(); _services.Dispose(); _shutdown.Dispose(); };
+        Closed += (_, _) => { _shutdown.Cancel(); _services.StateChanged -= ServicesOnStateChanged; _services.ScreenshotRequested -= ServicesOnScreenshotRequested; _statisticsPage?.Dispose(); _settingsPage?.Dispose(); _services.Dispose(); _shutdown.Dispose(); };
     }
 
     private void ServicesOnStateChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(RefreshState);
@@ -43,6 +44,9 @@ public partial class MainWindow : Window
             SelectionCheck.IsChecked = _services.SelectionEnabled;
             ImeCheck.IsChecked = _services.ImeEnabled;
             StatusText.Text = _services.Status;
+            ImeShortcut.IsReadOnly = _services.IsPreparingForUpdate;
+            SelectionShortcut.IsReadOnly = _services.IsPreparingForUpdate;
+            ScreenshotShortcut.IsReadOnly = _services.IsPreparingForUpdate;
         }
         finally { _refreshing = false; }
     }
@@ -52,7 +56,7 @@ public partial class MainWindow : Window
         {
             if (_settingsPage == null)
             {
-                _settingsPage = new AppearancePage(_services, ApplyVisualTheme);
+                _settingsPage = new AppearancePage(_services, ApplyVisualTheme, CanRestartForUpdate);
                 _settingsPage.BackRequested += (_, _) =>
                 {
                     ShowPage("home");
@@ -155,6 +159,8 @@ public partial class MainWindow : Window
     }
     private async void SaveSettingsClicked(object sender, RoutedEventArgs e)
     {
+        if (_savingSettings || _services.IsPreparingForUpdate) return;
+        _savingSettings = true;
         try
         {
             var settings = _services.Settings with { ImeHotkey = ImeShortcut.Text.Trim(), SelectionHotkey = SelectionShortcut.Text.Trim(), ScreenshotHotkey = ScreenshotShortcut.Text.Trim() };
@@ -163,13 +169,18 @@ public partial class MainWindow : Window
             ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, error == null ? "Muted" : "ErrorInk");
         }
         catch (Exception) { ShortcutStatus.Text = "保存失败，请检查快捷键后重试"; ShortcutStatus.SetResourceReference(TextBlock.ForegroundProperty, "ErrorInk"); }
+        finally { _savingSettings = false; }
     }
+    private bool CanRestartForUpdate() => !_capturing && !_savingSettings &&
+        ImeShortcut.Text.Trim() == _services.Settings.ImeHotkey &&
+        SelectionShortcut.Text.Trim() == _services.Settings.SelectionHotkey &&
+        ScreenshotShortcut.Text.Trim() == _services.Settings.ScreenshotHotkey;
     private async void CaptureClicked(object sender, RoutedEventArgs e) => await CaptureAsync();
     private void ShowError(string message) => MessageBox.Show(this, message, "PinyinTranslate", MessageBoxButton.OK, MessageBoxImage.Warning);
 
     public async Task CaptureAsync()
     {
-        if (_capturing) return;
+        if (_capturing || _services.IsPreparingForUpdate) return;
         _capturing = true;
         var hidden = new List<Window>();
         IDisposable? suppression = null;
@@ -180,6 +191,7 @@ public partial class MainWindow : Window
             foreach (var w in hidden) w.Hide();
             await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
             await Task.Delay(150, _shutdown.Token);
+            if (_services.IsPreparingForUpdate) return;
             var overlay = new SelectionOverlay();
             var accepted = overlay.ShowDialog();
             if (accepted != true || overlay.Selection is null) return;

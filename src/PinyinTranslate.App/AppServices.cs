@@ -11,6 +11,7 @@ public interface IAppServices : IDisposable
 {
     bool ImeEnabled { get; }
     bool SelectionEnabled { get; }
+    bool IsPreparingForUpdate => false;
     string Status { get; }
     AppSettings Settings { get; }
     event EventHandler? StateChanged;
@@ -18,6 +19,8 @@ public interface IAppServices : IDisposable
     event EventHandler? StatisticsChanged;
     Task<string?> SetImeEnabledAsync(bool enabled);
     Task<string?> SetSelectionEnabledAsync(bool enabled);
+    Task PrepareForUpdateAsync(CancellationToken cancellationToken);
+    Task ResumeAfterUpdateFailureAsync();
     Task<string?> ApplySettingsAsync(AppSettings settings);
     Task<string?> SetThemeAsync(string theme);
     string? GetSavedApiKey();
@@ -33,6 +36,7 @@ public sealed class UnavailableAppServices : IAppServices
 {
     public bool ImeEnabled => false;
     public bool SelectionEnabled => false;
+    public bool IsPreparingForUpdate => false;
     public string Status => "平台服务尚未连接；输入、划词和截图翻译不可用。";
     public AppSettings Settings => new("Ctrl+Alt+T", "Ctrl+Alt+D", "Ctrl+Alt+S");
     public event EventHandler? StateChanged { add { } remove { } }
@@ -40,6 +44,12 @@ public sealed class UnavailableAppServices : IAppServices
     public event EventHandler? StatisticsChanged { add { } remove { } }
     public Task<string?> SetImeEnabledAsync(bool enabled) => Task.FromResult<string?>(enabled ? "微软拼音输入服务尚未连接。" : null);
     public Task<string?> SetSelectionEnabledAsync(bool enabled) => Task.FromResult<string?>(enabled ? "划词读取服务尚未连接。" : null);
+    public Task PrepareForUpdateAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.CompletedTask;
+    }
+    public Task ResumeAfterUpdateFailureAsync() => Task.CompletedTask;
     public Task<string?> ApplySettingsAsync(AppSettings settings) => Task.FromResult<string?>("快捷键服务尚未连接。设置未保存。");
     public Task<string?> SetThemeAsync(string theme) => Task.FromResult<string?>("外观设置尚未连接。设置未保存。");
     public string? GetSavedApiKey() => null;

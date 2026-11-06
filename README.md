@@ -1,4 +1,4 @@
-# PinyinTranslate（划词兼容修复版）
+# PinyinTranslate
 
 Windows 11 x64 中文桌面翻译工具，使用系统微软拼音。开启中译英模式后，自动翻译当前页第一个中文候选，在候选框上方预览英文，并将最新有效译文复制到系统剪贴板。等浮窗显示“已复制”，手动按 Esc 取消尚未上屏的拼音，再按 Ctrl+V 粘贴。程序不再拦截 Tab，也不自动取消拼音或向输入框发送按键。使用新版前应退出旧版，避免两个版本同时监听快捷键和输入。
 
@@ -10,11 +10,13 @@ Windows 11 x64 中文桌面翻译工具，使用系统微软拼音。开启中�
 
 ## 启动
 
-解压发行 ZIP，运行 `PinyinTranslate.App.exe`。发行目录为 win-x64 .NET 10 自包含，不需要另外安装 .NET；需保留同目录其他文件。首次运行，划词和拼音模式均关闭。请在左侧“设置”中填入自己的 DeepSeek API Key 并保存；密钥通过 Windows DPAPI CurrentUser 保存在当前用户的 `%LOCALAPPDATA%\PinyinTranslate\secrets`，不在发行包中。重新打开设置时，已保存的密钥会以掩码形式显示；修改后需再次点击“保存密钥”。此软件独立于 Codex 配置。
+从 [GitHub Releases](https://github.com/ihhhhhooo/trans/releases/latest) 下载 `Portable.zip`，解压到可写目录，运行 ZIP 根目录的 `PinyinTranslate.exe`。请保留整个目录，包括 `current`、`Update.exe` 和 `.portable` 等配套文件。发行包为 win-x64 .NET 10 自包含，不需要另外安装 .NET。首次运行，划词和拼音模式均关闭。请在左侧“设置”中填入自己的 DeepSeek API Key 并保存；密钥通过 Windows DPAPI CurrentUser 保存在当前用户的 `%LOCALAPPDATA%\PinyinTranslate\secrets`，不在发行包中。重新打开设置时，已保存的密钥会以掩码形式显示；修改后需再次点击“保存密钥”。此软件独立于 Codex 配置。
+
+旧版普通解压包没有自动更新组件。首次迁移需退出旧版、下载新版 `Portable.zip` 并完整解压一次；请勿覆盖正在运行的旧目录。使用同一 Windows 账户启动后会沿用原来的密钥、设置和统计。从 1.0.0 开始，在“设置 → 软件更新”中点击“检查更新”，有新版时下载，再点击“更新并重启”。检查和下载不会自行退出或安装，也无需 GitHub 令牌。详细说明见 [更新机制](reports/updates.md)。
 
 使用左侧栏在“翻译”“统计”和“设置”之间切换。在“设置”的界面风格中左右拖动、使用滚轮或箭头浏览极简风、波普风、漫画风、剪纸拼贴风和黑金鎏金风；点击风格卡片立即应用并保存，无须重启。各功能的快捷键和开关位于同一行；编辑快捷键后点击“保存快捷键”。
 
-“设置”中可开启或关闭“开机自启动”，开启后会为当前 Windows 用户添加启动项，在登录该账户后启动程序。开关显示系统中的现有状态；若移动程序或换到其他发行目录，可关闭后重新开启，使启动项指向当前版本。
+“设置”中可开启或关闭“开机自启动”，开启后会为当前 Windows 用户添加启动项，在登录该账户后启动程序。便携版启动项指向根目录启动器。首次迁移时，仅当原启动项已开启且可确认是本程序命令时，将它改为新路径；不会自动开启自启动。不认识的自定义命令保留原样，可关闭后重新开启，使其指向当前版本。
 
 漫画风采用蓝黄撞色、网点和漫画描边；风格切换会更新主界面、设置与统计页，以及当前已打开的翻译结果窗口。
 
@@ -42,9 +44,10 @@ Windows 11 x64 中文桌面翻译工具，使用系统微软拼音。开启中�
 ```powershell
 ./scripts/test.ps1 -HeadlessOnly
 ./scripts/package.ps1
+./scripts/package.ps1 -Velopack
 ```
 
-脚本使用 .NET 10.0.14 win-x64 自包含发布，不启用裁剪或 Native AOT，输出 `artifacts/PinyinTranslate-win-x64` 和 `artifacts/PinyinTranslate-win-x64.zip`。真实付费开发测试通过项目测试工具和同一测试预算账本；测试凭据不会打包。`reports/api-budget.json` 是早前交付时的只读快照，开发测试计数以本机 LocalAppData 测试账本为准，正式使用量单独保存在 `api-usage.json`。
+脚本使用 `Directory.Build.props` 固定的 .NET 10.0.14 win-x64 自包含发布，不启用裁剪或 Native AOT。默认输出普通目录与 ZIP；`-Velopack` 生成可自动更新的便携 ZIP、完整更新包与发布索引。版本号统一在 `Directory.Build.props` 修改。将变更提交并推送后，推送与版本一致的 `vX.Y.Z` 标签，GitHub Actions 会运行 headless 测试、打包并发布到本仓库 Releases；不要覆盖已发布版本，修复应递增版本号。真实付费开发测试通过项目测试工具和同一测试预算账本；测试凭据不会打包。`reports/api-budget.json` 是早前交付时的只读快照，开发测试计数以本机 LocalAppData 测试账本为准，正式使用量单独保存在 `api-usage.json`。
 
 `-HeadlessOnly` 会核对已静态审查的测试源码清单，新增未知测试文件时先报错。测试使用内存状态、合成 UIA 快照、虚拟剪贴板/键盘、临时文件和假密钥；不创建真实 UIA/全局钩子、不访问系统剪贴板、不发送输入或启动产品窗口，并明确排除读取外部真实凭据的可选测试。本轮结果见 `reports/selection-fix.md`；真实 Windows 输入兼容性没有在本轮验证。保留的旧 Tab 写入测试只覆盖历史路径，正式程序默认使用自动复制流程。
 

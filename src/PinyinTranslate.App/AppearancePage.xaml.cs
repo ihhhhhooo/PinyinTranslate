@@ -1,17 +1,20 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using PinyinTranslate.Update;
 
 namespace PinyinTranslate.App;
 
-public partial class AppearancePage : UserControl
+public partial class AppearancePage : UserControl, IDisposable
 {
     private readonly IAppServices _services;
     private readonly Action<string> _applyTheme;
     private readonly AppearanceChoice[] _choices;
+    private readonly Func<bool> _canRestart;
     private bool _applying;
     private bool _loadingKey = true;
     private bool _loadingStartup = true;
@@ -19,13 +22,19 @@ public partial class AppearancePage : UserControl
     private bool _dragging;
     private Point _dragOrigin;
     private double _dragOffset;
+    private UpdateService? _updates;
+    private long _updateRevision = -1;
+    private bool _disposed;
+    private bool _keyDirty;
+    private bool _savingKey;
 
     public event EventHandler? BackRequested;
 
-    public AppearancePage(IAppServices services, Action<string> applyTheme)
+    public AppearancePage(IAppServices services, Action<string> applyTheme, Func<bool>? canRestart = null)
     {
         _services = services;
         _applyTheme = applyTheme;
+        _canRestart = canRestart ?? (() => true);
         _choices =
         [
             new("light", "极简风", "留白与细线，纵向布局清爽专注。"),
@@ -38,6 +47,19 @@ public partial class AppearancePage : UserControl
         ThemeCards.ItemsSource = _choices;
         LoadSavedApiKey();
         RefreshSelection();
+        try
+        {
+            var lifecycle = new DesktopUpdateLifecycle(services, Dispatcher,
+                () => !_keyDirty && !_savingKey && !_applying && _canRestart(), () => _disposed);
+            _updates = new UpdateService(new VelopackBackend(), lifecycle);
+            _updates.StateChanged += UpdateStateChanged;
+            RenderUpdate(_updates.State);
+        }
+        catch (Exception)
+        {
+            UpdateVersionText.Text = "当前版本 " + typeof(App).Assembly.GetName().Version?.ToString(3);
+            UpdateStatusText.Text = "无法初始化更新服务，可从发布页下载完整便携包。";
+        }
     }
 
     private void LoadSavedApiKey()
@@ -61,7 +83,10 @@ public partial class AppearancePage : UserControl
     {
         UpdateKeyPlaceholder();
         if (!_loadingKey && KeyStatus != null)
+        {
+            _keyDirty = true;
             SetKeyStatus(string.IsNullOrWhiteSpace(KeyBox.Password) ? "请输入密钥后保存" : "密钥已修改，请点击保存");
+        }
     }
 
     private void UpdateKeyPlaceholder()
@@ -78,19 +103,107 @@ public partial class AppearancePage : UserControl
 
     private async void SaveKeyClicked(object sender, RoutedEventArgs e)
     {
+        if (_savingKey || _disposed || _services.IsPreparingForUpdate) return;
         var key = KeyBox.Password;
+        _savingKey = true;
+        SaveKeyButton.IsEnabled = false;
         try
         {
             if (string.IsNullOrWhiteSpace(key)) { SetKeyStatus("请输入密钥后保存", true); return; }
             var error = await _services.SaveApiKeyAsync(key);
+            if (_disposed) return;
             if (error != null) { SetKeyStatus(error, true); return; }
+            if (KeyBox.Password != key) return;
             _loadingKey = true;
             try { KeyBox.Password = key.Trim(); }
             finally { _loadingKey = false; }
+            _keyDirty = false;
             SetKeyStatus("已保存 · 密钥已加密存储在本机");
             UpdateKeyPlaceholder();
         }
         catch (Exception) { SetKeyStatus("保存失败，请检查本机存储权限后重试", true); }
+        finally
+        {
+            _savingKey = false;
+            if (!_disposed) SaveKeyButton.IsEnabled = true;
+        }
+    }
+
+    private void UpdateStateChanged(UpdateState state)
+    {
+        if (_disposed || Dispatcher.HasShutdownStarted) return;
+        Dispatcher.BeginInvoke(() => { if (!_disposed) RenderUpdate(state); });
+    }
+
+    private void RenderUpdate(UpdateState state)
+    {
+        if (_disposed || state.Revision <= _updateRevision) return;
+        _updateRevision = state.Revision;
+        UpdateVersionText.Text = "当前版本 " + state.CurrentVersion +
+            (state.Release is null ? "" : "  →  " + state.Release.Version +
+             (state.Release.DownloadBytes > 0 ? $"（{state.Release.DownloadBytes / 1048576d:F1} MB）" : ""));
+        UpdateStatusText.Text = state.Message;
+        UpdateStatusText.SetResourceReference(TextBlock.ForegroundProperty,
+            state.Phase == UpdatePhase.Failed ? "ErrorInk" : "Ink");
+        CheckUpdateButton.IsEnabled = state.CanCheck;
+        DownloadUpdateButton.Visibility = state.CanDownload ? Visibility.Visible : Visibility.Collapsed;
+        InstallUpdateButton.Visibility = state.CanInstall ? Visibility.Visible : Visibility.Collapsed;
+        CancelUpdateButton.Visibility = state.CanCancel ? Visibility.Visible : Visibility.Collapsed;
+        UpdateProgress.Visibility = state.Phase == UpdatePhase.Downloading ? Visibility.Visible : Visibility.Collapsed;
+        UpdateProgress.Value = state.Progress;
+        var notes = state.Release?.Notes ?? "";
+        UpdateNotes.Text = notes.Length > 24000 ? notes[..24000] : notes;
+        UpdateNotes.Visibility = string.IsNullOrWhiteSpace(notes) ? Visibility.Collapsed : Visibility.Visible;
+        bool preparing = state.Phase is UpdatePhase.PreparingRestart or UpdatePhase.RestartScheduled;
+        KeyBox.IsEnabled = !preparing;
+        SaveKeyButton.IsEnabled = !preparing && !_savingKey;
+        ThemeCards.IsEnabled = !preparing;
+        StartupToggle.IsEnabled = !preparing;
+    }
+
+    private async void CheckUpdateClicked(object sender, RoutedEventArgs e)
+    {
+        if (_updates != null) await _updates.CheckAsync();
+    }
+
+    private async void DownloadUpdateClicked(object sender, RoutedEventArgs e)
+    {
+        if (_updates != null) await _updates.DownloadAsync();
+    }
+
+    private async void InstallUpdateClicked(object sender, RoutedEventArgs e)
+    {
+        if (_keyDirty || _savingKey || _applying)
+        {
+            UpdateStatusText.Text = "请先保存修改的密钥，并等待设置保存完成，再更新并重启。";
+            return;
+        }
+        if (!_canRestart())
+        {
+            UpdateStatusText.Text = "请先完成截图并保存修改过的快捷键，再更新并重启。";
+            return;
+        }
+        if (_updates != null) await _updates.InstallAsync();
+    }
+
+    private void CancelUpdateClicked(object sender, RoutedEventArgs e) => _updates?.Cancel();
+
+    private void OpenReleasesClicked(object sender, RoutedEventArgs e)
+    {
+        try { Process.Start(new ProcessStartInfo(VelopackBackend.RepositoryUrl + "/releases/latest") { UseShellExecute = true }); }
+        catch (Exception) { UpdateStatusText.Text = "无法打开浏览器，请手动打开 github.com/ihhhhhooo/trans/releases。"; }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        if (_updates != null)
+        {
+            _updates.StateChanged -= UpdateStateChanged;
+            _updates.Dispose();
+        }
+        ClearSensitiveData();
     }
 
     public void ClearSensitiveData()
@@ -106,7 +219,7 @@ public partial class AppearancePage : UserControl
         try
         {
             var state = StartupManager.Read();
-            StartupToggle.IsEnabled = true;
+            StartupToggle.IsEnabled = !_services.IsPreparingForUpdate;
             StartupToggle.IsChecked = state.Enabled;
             SetStartupStatus(!state.Enabled ? "登录当前 Windows 账户后自动启动" :
                 state.PointsToCurrentProgram ? "已添加到当前账户的 Windows 启动项" :
@@ -122,7 +235,7 @@ public partial class AppearancePage : UserControl
 
     private void StartupChanged(object sender, RoutedEventArgs e)
     {
-        if (_loadingStartup || !IsInitialized) return;
+        if (_loadingStartup || !IsInitialized || _services.IsPreparingForUpdate) return;
         try
         {
             StartupManager.SetEnabled(StartupToggle.IsChecked == true);
@@ -150,7 +263,7 @@ public partial class AppearancePage : UserControl
 
     private async void SelectThemeClicked(object sender, RoutedEventArgs e)
     {
-        if (_dragging || _applying || sender is not Button { Tag: string theme } || !ThemeManager.IsSupported(theme)) return;
+        if (_dragging || _applying || _services.IsPreparingForUpdate || sender is not Button { Tag: string theme } || !ThemeManager.IsSupported(theme)) return;
         if (theme == _services.Settings.Theme) return;
 
         _applying = true;

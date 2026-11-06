@@ -37,6 +37,18 @@ internal static class StartupManager
         key.SetValue(ValueName, command, RegistryValueKind.String);
     }
 
+    public static void RefreshEnabledForCurrentPortable()
+    {
+        string program = Environment.ProcessPath ?? "";
+        string launcher = StartupCommandPolicy.FindPortableLauncher(program, File.Exists);
+        if (launcher == program) return;
+        using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: true);
+        if (key?.GetValue(ValueName, null, RegistryValueOptions.DoNotExpandEnvironmentNames) is not string previous) return;
+        string current = CurrentCommand();
+        if (StartupCommandPolicy.ShouldRelocate(previous, current))
+            key.SetValue(ValueName, current, RegistryValueKind.String);
+    }
+
     private static string CurrentCommand()
     {
         var entry = Assembly.GetEntryAssembly();
@@ -50,8 +62,36 @@ internal static class StartupManager
                 throw new InvalidOperationException("无法取得应用程序路径。");
             return Quote(program) + " " + Quote(dll);
         }
-        return Quote(program);
+        return Quote(StartupCommandPolicy.FindPortableLauncher(program, File.Exists));
     }
 
     private static string Quote(string path) => "\"" + path + "\"";
+}
+
+/// <summary>Pure path/command policy; never touches the registry or launches a process.</summary>
+internal static class StartupCommandPolicy
+{
+    public static string FindPortableLauncher(string program, Func<string, bool> fileExists)
+    {
+        if (!Path.IsPathFullyQualified(program) || !string.Equals(Path.GetFileName(program), "PinyinTranslate.App.exe", StringComparison.OrdinalIgnoreCase)) return program;
+        var directory = Path.GetDirectoryName(program);
+        if (!string.Equals(Path.GetFileName(directory), "current", StringComparison.OrdinalIgnoreCase)) return program;
+        var root = Path.GetDirectoryName(directory);
+        if (string.IsNullOrWhiteSpace(root)) return program;
+        string launcher = Path.Combine(root, "PinyinTranslate.exe");
+        return fileExists(Path.Combine(root, ".portable")) && fileExists(launcher) ? launcher : program;
+    }
+
+    public static bool ShouldRelocate(string? previousCommand, string currentCommand)
+    {
+        if (string.IsNullOrWhiteSpace(previousCommand)) return false;
+        string previous = previousCommand.Trim();
+        if (string.Equals(previous, currentCommand, StringComparison.OrdinalIgnoreCase) ||
+            previous.Length < 3 || previous[0] != '"' || previous[^1] != '"') return false;
+        string executable = previous[1..^1];
+        if (executable.Contains('"') || !Path.IsPathFullyQualified(executable)) return false;
+        string name = Path.GetFileName(executable);
+        return string.Equals(name, "PinyinTranslate.App.exe", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(name, "PinyinTranslate.exe", StringComparison.OrdinalIgnoreCase);
+    }
 }
