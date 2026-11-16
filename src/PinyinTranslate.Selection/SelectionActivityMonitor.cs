@@ -136,6 +136,8 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
     private readonly Channel<SelectionActivity> _queue;
     private readonly TaskCompletionSource<bool> _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Dictionary<uint, (int ProcessId, nint Window)> _pointerGestures = new(), _keyGestures = new();
+    private readonly CopySelectionIntentTracker _copyShortcut = new();
+    private nint _copyGestureWindow;
     private int _ownProcessId, _started, _enabled, _disposed;
     private long _revision, _epoch, _epochStartRevision;
     public SelectionActivityMonitor(ISelectionActivitySource? source = null, int ownProcessId = 0, int queueCapacity = 256)
@@ -184,6 +186,8 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
             Interlocked.Increment(ref _epoch);
             Interlocked.Exchange(ref _epochStartRevision, Interlocked.Increment(ref _revision));
             _pointerGestures.Clear(); _keyGestures.Clear();
+            _copyShortcut.Reset();
+            _copyGestureWindow = 0;
             _enabled = enabled ? 1 : 0;
         }
     }
@@ -196,7 +200,6 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
                 (activity.HasCapturedEpoch && activity.Epoch != _epoch) ||
                 activity.TargetProcessId <= 0 || activity.TargetProcessId == _ownProcessId || activity.TargetWindow == 0 ||
                 (int)activity.Kind < (int)SelectionActivityKind.PointerDown || (int)activity.Kind > (int)SelectionActivityKind.PointerWheel) return;
-            long revision = Interlocked.Increment(ref _revision);
             var origin = (activity.TargetProcessId, activity.TargetWindow);
             if (activity.Kind == SelectionActivityKind.PointerDown && activity.MouseButton != 0)
                 _pointerGestures[activity.MouseButton] = origin;
@@ -212,6 +215,14 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
                 bool matched = _keyGestures.Remove(activity.VirtualKey, out var keyDown) && keyDown == origin;
                 activity = activity with { CompletesSelectionGesture = activity.CompletesSelectionGesture && matched };
             }
+            // Ctrl+C captures a text snapshot even while the preceding selection
+            // is still held. Completing that same gesture is not a new edit.
+            // The origin dictionaries above must be consumed before filtering.
+            if (_copyGestureWindow == activity.TargetWindow && activity.CompletesSelectionGesture &&
+                activity.Kind is SelectionActivityKind.PointerUp or SelectionActivityKind.KeyUp) return;
+            if (_copyShortcut.IsContinuation(activity)) return;
+            _copyGestureWindow = _copyShortcut.Observe(activity)?.Window ?? 0;
+            long revision = Interlocked.Increment(ref _revision);
             _queue.Writer.TryWrite(activity with { Revision = revision, Epoch = _epoch });
         }
     }

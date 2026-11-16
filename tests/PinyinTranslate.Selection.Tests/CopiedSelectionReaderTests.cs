@@ -6,6 +6,46 @@ namespace PinyinTranslate.Selection.Tests;
 // native provider, window or input is accessed, including the blocking test.
 public sealed class CopiedSelectionReaderTests
 {
+    [Fact]
+    public async Task A_source_owned_copy_can_be_read_again_when_the_terminal_does_not_change_the_sequence()
+    {
+        var api = new FakeApi { ReadOverride = _ => new(10, CopySelectionStatus.Success, "selected terminal text") };
+        api.Metadata = api.Metadata with { Sequence = 10 };
+        long time = 0;
+        using var reader = new WindowsCopiedSelectionReader(api, wait: (_, _) => { time += 250; return time < 2000; }, clock: () => time);
+        var result = await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None);
+        Assert.Equal(CopySelectionStatus.Success, result.Status);
+        Assert.Equal("selected terminal text", result.Selection!.Text);
+        Assert.True(result.Selection.SourceOwnedBaseline);
+    }
+
+    [Fact]
+    public async Task Waiting_for_the_copy_prefers_new_text_over_the_source_apps_previous_clipboard()
+    {
+        long time = 0;
+        var api = new FakeApi(); api.Metadata = api.Metadata with { Sequence = 10 };
+        api.ReadOverride = count =>
+        {
+            if (count < 3) return new(10, CopySelectionStatus.Success, "previous selection");
+            api.Metadata = api.Metadata with { Sequence = 11 };
+            return new(11, CopySelectionStatus.Success, "new selection");
+        };
+        using var reader = new WindowsCopiedSelectionReader(api, wait: (_, _) => { time += 250; return true; }, clock: () => time);
+        var copy = (await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None)).Selection!;
+        Assert.Equal("new selection", copy.Text); Assert.False(copy.SourceOwnedBaseline);
+    }
+
+    [Fact]
+    public async Task A_repeat_copy_never_uses_a_sequence_written_by_our_own_translation()
+    {
+        long time = 0;
+        var api = new FakeApi { ReadOverride = _ => new(10, CopySelectionStatus.Success, "own translation") };
+        api.Metadata = api.Metadata with { Sequence = 10 };
+        using var reader = new WindowsCopiedSelectionReader(api, wait: (_, _) => { time += 250; return time < 1500; },
+            ignoreOwnSequence: sequence => sequence == 10, clock: () => time);
+        Assert.Null((await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None)).Selection);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -14,9 +54,9 @@ public sealed class CopiedSelectionReaderTests
         long time = 1000;
         var tracker = new CopySelectionIntentTracker(() => time);
         if (staleGesture) { tracker.Observe(Gesture()); time += 16000; }
-        tracker.Observe(Key(0x43, true, SelectionActivityModifiers.Control, true));
-        tracker.Observe(Key(0x43, false, SelectionActivityModifiers.Control));
-        Assert.Equal(new CopySelectionRequest(100, 42, 10), tracker.Observe(Key(0x11, false)));
+        Assert.Equal(new CopySelectionRequest(100, 42, 10), tracker.Observe(Key(0x43, true, SelectionActivityModifiers.Control, true)));
+        Assert.Null(tracker.Observe(Key(0x43, false, SelectionActivityModifiers.Control)));
+        Assert.Null(tracker.Observe(Key(0x11, false)));
     }
 
     [Fact]
@@ -69,43 +109,39 @@ public sealed class CopiedSelectionReaderTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public void Copy_is_captured_once_after_C_and_all_modifiers_are_released(bool terminalShift, bool controlReleasedFirst)
+    public void Copy_is_captured_on_press_and_not_repeated_by_held_keys_or_releases(bool terminalShift, bool controlReleasedFirst)
     {
         var tracker = new CopySelectionIntentTracker(() => 1000);
         Assert.Null(tracker.Observe(Gesture())); // Child renderer PID may differ from the host.
         var modifiers = SelectionActivityModifiers.Control | (terminalShift ? SelectionActivityModifiers.Shift : 0);
         Assert.Null(tracker.Observe(Key(0x11, true, modifiers)));
-        Assert.Null(tracker.Observe(Key(0x43, true, modifiers, true)));
+        Assert.Equal(new CopySelectionRequest(100, 42, 10), tracker.Observe(Key(0x43, true, modifiers, true)));
         Assert.Null(tracker.Observe(Key(0x43, true, modifiers, true) with { IsRepeat = true }));
         var afterControl = terminalShift ? SelectionActivityModifiers.Shift : SelectionActivityModifiers.None;
-        CopySelectionRequest? result;
         if (controlReleasedFirst)
         {
             Assert.Null(tracker.Observe(Key(0x11, false, afterControl)));
-            result = tracker.Observe(Key(0x43, false, afterControl));
+            Assert.Null(tracker.Observe(Key(0x43, false, afterControl)));
         }
         else
         {
             Assert.Null(tracker.Observe(Key(0x43, false, modifiers)));
-            result = tracker.Observe(Key(0x11, false, afterControl));
+            Assert.Null(tracker.Observe(Key(0x11, false, afterControl)));
         }
-        if (terminalShift) { Assert.Null(result); result = tracker.Observe(Key(0x10, false)); }
-        Assert.Equal(new CopySelectionRequest(100, 42, 10), result);
-        Assert.False(tracker.HasPendingCopy); Assert.Null(tracker.Observe(Key(0x11, false)));
+        if (terminalShift) Assert.Null(tracker.Observe(Key(0x10, false)));
+        Assert.False(tracker.HasActiveChord); Assert.Null(tracker.Observe(Key(0x11, false)));
     }
 
     [Theory]
-    [InlineData("window")]
     [InlineData("injected")]
     [InlineData("no-baseline")]
     [InlineData("alt")]
     [InlineData("stale-copy")]
-    public void A_copy_requires_a_physical_key_baseline_and_an_unchanged_window_until_release(string scenario)
+    public void A_copy_requires_a_physical_key_and_a_fresh_captured_baseline(string scenario)
     {
         long time = 1000;
         var tracker = new CopySelectionIntentTracker(() => time);
         var key = Key(0x43, true, SelectionActivityModifiers.Control, true);
-        if (scenario == "window") key = key with { ForegroundWindow = 200 };
         if (scenario == "injected") key = key with { IsInjected = true };
         if (scenario == "no-baseline") key = key with { HasCopySequence = false };
         if (scenario == "alt") key = key with { Modifiers = SelectionActivityModifiers.Control | SelectionActivityModifiers.Alt };
@@ -123,18 +159,18 @@ public sealed class CopiedSelectionReaderTests
         tracker.Observe(Key(0x43, true, SelectionActivityModifiers.Control, true));
         tracker.Observe(Key(0x58, true));
         Assert.Null(tracker.Observe(Key(0x43, false)));
-        Assert.False(tracker.HasPendingCopy);
+        Assert.False(tracker.HasActiveChord);
     }
 
     [Fact]
-    public void A_missing_copy_key_release_expires_instead_of_disabling_automatic_reads_forever()
+    public void A_missing_release_does_not_prevent_the_next_physical_copy_from_starting()
     {
         long time = 1000;
         var tracker = new CopySelectionIntentTracker(() => time);
         tracker.Observe(Gesture()); tracker.Observe(Key(0x43, true, SelectionActivityModifiers.Control, true));
-        Assert.True(tracker.HasPendingCopy);
+        Assert.True(tracker.HasActiveChord);
         time += 16000;
-        Assert.False(tracker.HasPendingCopy);
+        Assert.NotNull(tracker.Observe(Key(0x43, true, SelectionActivityModifiers.Control, true)));
         Assert.Null(tracker.Observe(Key(0x43, false)));
     }
 
@@ -157,7 +193,7 @@ public sealed class CopiedSelectionReaderTests
     }
 
     [Fact]
-    public async Task An_unchanged_clipboard_may_be_probed_for_delayed_rendering_but_never_publishes_old_text()
+    public async Task Unchanged_text_is_not_reused_before_the_application_has_had_time_to_copy()
     {
         var api = new FakeApi { ReadOverride = _ => new(10, CopySelectionStatus.Success, "old clipboard text") };
         api.Metadata = api.Metadata with { Sequence = 10 };
@@ -183,9 +219,7 @@ public sealed class CopiedSelectionReaderTests
         Assert.Equal(CopySelectionStatus.Success,
             (await reader.ReadAfterCopyAsync(new(100, 42, 0), () => true, CancellationToken.None)).Status);
         var tracker = new CopySelectionIntentTracker(() => 1000);
-        tracker.Observe(Key(0x43, true, SelectionActivityModifiers.Control, true) with { BeforeCopySequence = 0 });
-        tracker.Observe(Key(0x43, false, SelectionActivityModifiers.Control));
-        Assert.Equal(0u, tracker.Observe(Key(0x11, false))!.BeforeSequence);
+        Assert.Equal(0u, tracker.Observe(Key(0x43, true, SelectionActivityModifiers.Control, true) with { BeforeCopySequence = 0 })!.BeforeSequence);
     }
 
     [Fact]
@@ -220,7 +254,6 @@ public sealed class CopiedSelectionReaderTests
     }
 
     [Theory]
-    [InlineData("sequence")]
     [InlineData("window")]
     [InlineData("cancelled")]
     public async Task Changes_while_reading_drop_the_text(string change)
@@ -229,13 +262,51 @@ public sealed class CopiedSelectionReaderTests
         var api = new FakeApi();
         api.BeforeRead = () =>
         {
-            if (change == "sequence") api.Metadata = api.Metadata with { Sequence = 12 };
             if (change == "window") api.Metadata = api.Metadata with { ForegroundWindow = 200 };
             if (change == "cancelled") current = false;
         };
         using var reader = Reader(api);
         var result = await reader.ReadAfterCopyAsync(new(100, 42, 10), () => current, CancellationToken.None);
         Assert.Null(result.Selection); Assert.NotEqual(CopySelectionStatus.Success, result.Status);
+    }
+
+    [Fact]
+    public async Task A_valid_text_snapshot_survives_subsequent_clipboard_format_updates()
+    {
+        var api = new FakeApi(); api.BeforeRead = () => api.Metadata = api.Metadata with { Sequence = 12 };
+        using var reader = Reader(api);
+        Assert.Equal("new text 😀", (await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None)).Selection!.Text);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(99)]
+    [InlineData(7)]
+    public async Task Unchanged_text_owned_by_another_app_or_unknown_owner_is_not_used_as_terminal_selection(int owner)
+    {
+        long time = 0;
+        var api = new FakeApi { ReadOverride = _ => new(10, CopySelectionStatus.Success, "unrelated clipboard") };
+        api.Metadata = api.Metadata with { Sequence = 10, OwnerProcessId = owner };
+        using var reader = new WindowsCopiedSelectionReader(api, wait: (_, _) => { time += 250; return time < 1250; }, clock: () => time);
+        Assert.Null((await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None)).Selection);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(3)]
+    public void Unicode_clipboard_text_allows_allocation_padding_without_reading_past_the_buffer(int padding)
+    {
+        byte[] text = System.Text.Encoding.Unicode.GetBytes("终端 😀\0");
+        nint buffer = System.Runtime.InteropServices.Marshal.AllocHGlobal(text.Length + padding);
+        try
+        {
+            System.Runtime.InteropServices.Marshal.Copy(text, 0, buffer, text.Length);
+            for (int i = 0; i < padding; i++) System.Runtime.InteropServices.Marshal.WriteByte(buffer, text.Length + i, 0xFF);
+            var result = WindowsCopiedSelectionReader.ReadUnicodeText(buffer, (nuint)(text.Length + padding), 11, 4000);
+            Assert.Equal(CopySelectionStatus.Success, result.Status); Assert.Equal("终端 😀", result.Text);
+        }
+        finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(buffer); }
     }
 
     [Theory]

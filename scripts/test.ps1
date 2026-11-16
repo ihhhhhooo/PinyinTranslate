@@ -76,7 +76,7 @@ if ($HeadlessOnly) {
         Write-Host "Headless reviewed: $($suite.Directory) ($($actualSources.Count) source files; all tests included except any explicit exclusion below)."
     }
     Write-Host "Headless exclusion: $credentialTest (may read an externally supplied protected credential)."
-    Write-Host 'Headless scope: managed fakes, synthetic UIA snapshots/protocols, temporary test files, and DPAPI round-trip of a fake test key. No live UIA, hooks, clipboard, process launch or input injection.'
+    Write-Host 'Headless scope: managed fakes, synthetic UIA snapshots/protocols, owned native text buffers, temporary test files, and DPAPI round-trip of a fake test key. No live UIA, hooks, clipboard, process launch or input injection.'
 }
 
 foreach ($suite in $suites) {

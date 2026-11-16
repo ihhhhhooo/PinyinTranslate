@@ -7,6 +7,96 @@ namespace PinyinTranslate.Selection.Tests;
 // Actual monitor + managed sources only; no clipboard, UIA, native hook or window.
 public sealed class SelectionMonitorCopyTests
 {
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Copy_can_finish_an_active_selection_and_its_later_release_does_not_cancel_translation(bool pointer)
+    {
+        var source = new CopySource();
+        using var activity = new SelectionActivityMonitor(source, 7);
+        using var monitor = new SelectionMonitor(new Reader(), activity,
+            new() { Debounce = TimeSpan.FromDays(1), PollInterval = TimeSpan.Zero }, copyReader: new ClipboardReader());
+        var published = new TaskCompletionSource<SelectionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        monitor.SelectionChanged += value => published.TrySetResult(value);
+        Assert.True(await monitor.Ready.WaitAsync(TimeSpan.FromSeconds(2))); monitor.SetEnabled(true);
+        var selecting = pointer
+            ? new SelectionActivity(SelectionActivityKind.PointerDown, 100, 110, 43, MouseButton: 1) { TargetRootWindow = 100 }
+            : new SelectionActivity(SelectionActivityKind.KeyDown, 100, 0, 42, VirtualKey: 0x25, Modifiers: SelectionActivityModifiers.Shift);
+        source.Send(selecting);
+        var copy = new SelectionActivity(SelectionActivityKind.KeyDown, 100, 0, 42, VirtualKey: 0x43,
+            Modifiers: SelectionActivityModifiers.Control | SelectionActivityModifiers.Shift)
+            { HasCopySequence = true, BeforeCopySequence = 10 };
+        source.Send(copy);
+        var snapshot = await published.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(monitor.IsCurrent(snapshot.Version));
+        source.Send(copy with { Kind = SelectionActivityKind.KeyUp, HasCopySequence = false });
+        source.Send(copy with { Kind = SelectionActivityKind.KeyUp, VirtualKey = 0x11, Modifiers = SelectionActivityModifiers.Shift, HasCopySequence = false });
+        source.Send(copy with { Kind = SelectionActivityKind.KeyUp, VirtualKey = 0x10, Modifiers = 0, HasCopySequence = false });
+        source.Send(selecting with { Kind = pointer ? SelectionActivityKind.PointerUp : SelectionActivityKind.KeyUp,
+            Modifiers = 0, CompletesSelectionGesture = true });
+        Assert.True(monitor.IsCurrent(snapshot.Version));
+        source.Send(copy with { VirtualKey = 0x58, HasCopySequence = false });
+        Assert.False(monitor.IsCurrent(snapshot.Version));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task Copy_starts_on_key_down_and_its_repeats_and_key_releases_do_not_revoke_the_result(bool shift, bool controlFirst)
+    {
+        var source = new CopySource();
+        using var activity = new SelectionActivityMonitor(source, 7);
+        var clipboard = new ClipboardReader();
+        using var monitor = new SelectionMonitor(new Reader(), activity,
+            new() { Debounce = TimeSpan.FromDays(1), PollInterval = TimeSpan.Zero }, copyReader: clipboard);
+        var published = new TaskCompletionSource<SelectionSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+        monitor.SelectionChanged += value => published.TrySetResult(value);
+        Assert.True(await monitor.Ready.WaitAsync(TimeSpan.FromSeconds(2))); monitor.SetEnabled(true);
+        var down = new SelectionActivity(SelectionActivityKind.KeyDown, 100, 0, 42, VirtualKey: 0x43,
+            Modifiers: SelectionActivityModifiers.Control | (shift ? SelectionActivityModifiers.Shift : 0)) { HasCopySequence = true, BeforeCopySequence = 10 };
+        source.Send(down);
+        var snapshot = await published.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(monitor.IsCurrent(snapshot.Version));
+        source.Send(down with { IsRepeat = true, HasCopySequence = false });
+        var releaseControl = down with { Kind = SelectionActivityKind.KeyUp, VirtualKey = 0x11,
+            Modifiers = shift ? SelectionActivityModifiers.Shift : 0, HasCopySequence = false };
+        if (controlFirst) source.Send(releaseControl);
+        source.Send(down with { Kind = SelectionActivityKind.KeyUp,
+            Modifiers = controlFirst ? releaseControl.Modifiers : down.Modifiers, HasCopySequence = false });
+        if (!controlFirst) source.Send(releaseControl);
+        if (shift) source.Send(down with { Kind = SelectionActivityKind.KeyUp, VirtualKey = 0x10, Modifiers = 0, HasCopySequence = false });
+        Assert.True(monitor.IsCurrent(snapshot.Version)); Assert.Single(clipboard.Requests);
+        source.Send(down with { VirtualKey = 0x58, HasCopySequence = false });
+        Assert.False(monitor.IsCurrent(snapshot.Version));
+    }
+
+    [Fact]
+    public async Task A_verified_repeat_copy_with_the_same_sequence_reaches_presentation()
+    {
+        using var fixture = new Fixture();
+        fixture.Clipboard.ReadOverride = (request, _, _) => Task.FromResult(new CopySelectionResult(CopySelectionStatus.Success,
+            new(request.Window, request.ProcessId, request.BeforeSequence, "same terminal text") { SourceOwnedBaseline = true }));
+        await fixture.Enable(); fixture.Copy();
+        var snapshot = await fixture.Next();
+        Assert.True(snapshot.IsCopiedText); Assert.Equal("same terminal text", snapshot.Text);
+        Assert.True(await fixture.Monitor.ValidateAsync(snapshot));
+        fixture.Copy();
+        Assert.Equal("same terminal text", (await fixture.Next()).Text); Assert.Equal(2, fixture.Clipboard.Requests.Count);
+    }
+
+    [Fact]
+    public async Task A_missing_Java_selection_interface_does_not_replace_the_available_copy_workflow_with_configuration_errors()
+    {
+        using var fixture = new Fixture(new Reader { Reason = "IDEA/Java编辑区未开放选区接口。请开启支持屏幕阅读器和Java Access Bridge。" });
+        var notice = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.Monitor.StatusChanged += message => { if (message != "划词监控已就绪") notice.TrySetResult(message); };
+        await fixture.Enable(); fixture.Gesture(); await fixture.Monitor.RequestReadAsync();
+        string message = await notice.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Contains("Ctrl+C", message); Assert.DoesNotContain("Java Access Bridge", message);
+    }
+
     [Fact]
     public async Task The_monitor_deadline_cancels_the_underlying_reader_and_keeps_its_token_alive_until_it_finishes()
     {
@@ -93,10 +183,11 @@ public sealed class SelectionMonitorCopyTests
     {
         using var fixture = new Fixture(); await fixture.Enable();
         fixture.Activity.Send(SelectionActivityKind.KeyDown, 0x43, SelectionActivityModifiers.Control, baseline: true);
+        Assert.Single(fixture.Clipboard.Requests);
         var old = fixture.Activity.Create(SelectionActivityKind.KeyUp, 0x43);
         fixture.Monitor.SetEnabled(false); fixture.Monitor.SetEnabled(true, requireFreshSelection: true);
         fixture.Activity.Deliver(old);
-        Assert.Empty(fixture.Clipboard.Requests);
+        Assert.Single(fixture.Clipboard.Requests);
         fixture.Copy();
         Assert.True((await fixture.Next()).IsCopiedText);
     }
@@ -196,6 +287,8 @@ public sealed class SelectionMonitorCopyTests
     }
     private sealed class Reader : ISelectionReader
     {
+        public string? Reason;
+        public string? UnavailableReason => Reason;
         public Func<bool>? StartOverride;
         public Func<SelectionReadResult?>? ReadOverride;
         public int Reads, Validations;
@@ -206,16 +299,25 @@ public sealed class SelectionMonitorCopyTests
         public bool Validate(SelectionReadResult result) { Interlocked.Increment(ref Validations); return false; }
         public void Dispose() { }
     }
+    private sealed class CopySource : ISelectionActivitySource
+    {
+        public Task<bool> Ready => Task.FromResult(true);
+        public event Action<SelectionActivity>? Activity;
+        public void Start() { }
+        public void Send(SelectionActivity value) => Activity?.Invoke(value);
+        public void Dispose() { }
+    }
     private sealed class FakeActivity : ISelectionActivityMonitor
     {
         private long revision, epoch;
+        private readonly CopySelectionIntentTracker copy = new(() => 1000);
         public long Revision => Interlocked.Read(ref revision);
         public long Epoch => Interlocked.Read(ref epoch);
         public long EpochStartRevision { get; private set; }
         public Task<bool> Ready => Task.FromResult(true);
         public event Action<SelectionActivity>? Activity;
         public void Start() { }
-        public void SetEnabled(bool enabled) { Interlocked.Increment(ref epoch); EpochStartRevision = Interlocked.Increment(ref revision); }
+        public void SetEnabled(bool enabled) { copy.Reset(); Interlocked.Increment(ref epoch); EpochStartRevision = Interlocked.Increment(ref revision); }
         public SelectionActivity Create(SelectionActivityKind kind, uint key = 0, SelectionActivityModifiers modifiers = 0,
             bool completes = false, uint button = 0, nint window = default, bool baseline = false, bool injected = false)
             => new(kind, window == 0 ? 100 : window, 110, 42, VirtualKey: key, Modifiers: modifiers, MouseButton: button,
@@ -224,7 +326,14 @@ public sealed class SelectionMonitorCopyTests
         public void Deliver(SelectionActivity activity) => Activity?.Invoke(activity);
         public void Send(SelectionActivityKind kind, uint key = 0, SelectionActivityModifiers modifiers = 0,
             bool completes = false, uint button = 0, nint window = default, bool baseline = false, bool injected = false)
-            => Deliver(Create(kind, key, modifiers, completes, button, window, baseline, injected));
+        {
+            var value = new SelectionActivity(kind, window == 0 ? 100 : window, 110, 42, VirtualKey: key,
+                Modifiers: modifiers, MouseButton: button) { TargetRootWindow = window == 0 ? 100 : window,
+                    HasCopySequence = baseline, BeforeCopySequence = baseline ? 10u : 0u, IsInjected = injected };
+            if (copy.IsContinuation(value)) return;
+            _ = copy.Observe(value);
+            Deliver(Create(kind, key, modifiers, completes, button, window, baseline, injected));
+        }
         public void Dispose() { }
     }
     private sealed class Fixture : IDisposable

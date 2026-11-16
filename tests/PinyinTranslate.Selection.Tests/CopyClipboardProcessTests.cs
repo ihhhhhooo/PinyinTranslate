@@ -8,6 +8,62 @@ namespace PinyinTranslate.Selection.Tests;
 // Fake children and in-memory pipes only. No process or native clipboard is used.
 public sealed class CopyClipboardProcessTests
 {
+    [Theory]
+    [InlineData(11u, false)]
+    [InlineData(12u, true)]
+    public async Task An_own_write_is_rejected_only_when_it_is_the_captured_snapshot_not_a_later_clipboard_update(uint laterSequence, bool valid)
+    {
+        var child = await Reply(new(CopySelectionStatus.Success, 11, "captured text")); var api = new MetadataApi();
+        var capture = new CallbackCapture(new CopyClipboardProcessCapture(() => child),
+            () => api.Metadata = api.Metadata with { Sequence = laterSequence, OwnerProcessId = api.OwnProcessId });
+        using var reader = new WindowsCopiedSelectionReader(api, capture: capture);
+        var result = await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None);
+        Assert.Equal(valid, result.Status == CopySelectionStatus.Success);
+    }
+
+    [Fact]
+    public async Task A_source_verified_repeat_snapshot_round_trips_through_the_worker_protocol()
+    {
+        var child = await Reply(new(CopySelectionStatus.Success, 10, "copied already", SourceOwnedBaseline: true));
+        var api = new MetadataApi(); api.Metadata = api.Metadata with { Sequence = 10 };
+        using var reader = new WindowsCopiedSelectionReader(api, capture: new CopyClipboardProcessCapture(() => child));
+        var result = await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None);
+        Assert.Equal("copied already", result.Selection!.Text); Assert.True(result.Selection.SourceOwnedBaseline);
+    }
+
+    [Fact]
+    public async Task A_source_verified_repeat_does_not_authorize_an_unrelated_apps_old_clipboard()
+    {
+        var child = await Reply(new(CopySelectionStatus.Success, 10, "unrelated", SourceOwnedBaseline: true));
+        var api = new MetadataApi(); api.Metadata = api.Metadata with { Sequence = 10, OwnerProcessId = 99 };
+        using var reader = new WindowsCopiedSelectionReader(api, capture: new CopyClipboardProcessCapture(() => child));
+        Assert.Null((await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None)).Selection);
+    }
+
+    [Fact]
+    public async Task A_new_copy_arriving_during_repeat_capture_is_read_instead_of_the_old_snapshot()
+    {
+        var first = await Reply(new(CopySelectionStatus.Success, 10, "previous copy", SourceOwnedBaseline: true));
+        var second = await Reply(new(CopySelectionStatus.Success, 11, "fresh copy"));
+        var children = new Queue<FakeProcess>([first, second]); var api = new MetadataApi();
+        api.Metadata = api.Metadata with { Sequence = 10 };
+        var capture = new CallbackCapture(new CopyClipboardProcessCapture(() => children.Dequeue()),
+            () => api.Metadata = api.Metadata with { Sequence = 11 });
+        using var reader = new WindowsCopiedSelectionReader(api, capture: capture);
+        Assert.Equal("fresh copy", (await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None)).Selection!.Text);
+        Assert.Empty(children); Assert.True(first.Disposed.Task.IsCompleted); Assert.True(second.Disposed.Task.IsCompleted);
+    }
+
+    [Fact]
+    public async Task Later_clipboard_format_updates_do_not_discard_an_already_captured_text_snapshot()
+    {
+        var child = await Reply(new(CopySelectionStatus.Success, 11, "terminal selection")); var api = new MetadataApi();
+        var capture = new CallbackCapture(new CopyClipboardProcessCapture(() => child), () => api.Metadata = api.Metadata with { Sequence = 12 });
+        using var reader = new WindowsCopiedSelectionReader(api, capture: capture);
+        var result = await reader.ReadAfterCopyAsync(new(100, 42, 10), () => true, CancellationToken.None);
+        Assert.Equal(CopySelectionStatus.Success, result.Status); Assert.Equal("terminal selection", result.Selection!.Text);
+    }
+
     [Fact]
     public async Task A_timeout_keeps_the_worker_token_alive_until_helper_cleanup_finishes()
     {

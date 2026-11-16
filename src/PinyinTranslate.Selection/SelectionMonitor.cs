@@ -229,6 +229,9 @@ public sealed partial class SelectionMonitor : ISelectionMonitor
             }
             if (copyReader is not null && copyIntent.Observe(change) is { } request)
             {
+                // An explicit copy snapshots the current text independently of
+                // any selection drag or selection key that is still held down.
+                pointerGestureInProgress = keyboardGestureInProgress = false;
                 var cancellation = new CancellationTokenSource();
                 copyCapture = cancellation;
                 copy = new(request, epoch, version, handledActivityRevision, cancellation, cancellation.Token);
@@ -287,7 +290,7 @@ public sealed partial class SelectionMonitor : ISelectionMonitor
         lock (gate)
         {
             if (disposed || !enabled || epoch != capturedEpoch || gestureInProgress || (activity?.Revision ?? 0) != handledActivityRevision ||
-                copyCapture is not null || copyIntent.HasPendingCopy) return;
+                copyCapture is not null) return;
             copiedEntry = current?.Copy is not null ? current : null;
             if (copiedEntry is null && !readerAvailable) return;
             capturedVersion = version;
@@ -356,9 +359,9 @@ public sealed partial class SelectionMonitor : ISelectionMonitor
         if (emptyGestureNotified) return;
         emptyGestureNotified = true;
         long capturedVersion = version;
-        string message = reader.UnavailableReason ?? (copyReader is not null
-            ? "未读到选区接口；可选中文字后按 Ctrl+C（终端也可 Ctrl+Shift+C）兼容翻译，或使用截图翻译。"
-            : "未读取到可翻译的选中文字；如已划选，可尝试截图翻译。");
+        if (!string.IsNullOrWhiteSpace(reader.UnavailableReason)) Trace("selection-unavailable=" + reader.UnavailableReason);
+        string message = copyReader is not null ? "选中文字后按 Ctrl+C 翻译。" :
+            reader.UnavailableReason ?? "未读取到可翻译的选中文字；如已划选，可尝试截图翻译。";
         Notice(() =>
         {
             lock (gate)

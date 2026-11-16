@@ -33,6 +33,7 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
     private readonly TimeSpan timeout;
     private readonly Func<int, CancellationToken, bool> wait;
     private readonly Func<uint, bool> ignoreOwnSequence;
+    private readonly Func<long> clock;
     private readonly BlockingCollection<Action> queue = new(1);
     private readonly SemaphoreSlim access = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
@@ -42,7 +43,7 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
 
     public WindowsCopiedSelectionReader(ICopyClipboardReadApi? api = null, TimeSpan? timeout = null,
         Func<int, CancellationToken, bool>? wait = null, Func<uint, bool>? ignoreOwnSequence = null,
-        ICopyClipboardCapture? capture = null)
+        ICopyClipboardCapture? capture = null, Func<long>? clock = null)
     {
         this.api = api ?? new NativeApi();
         this.capture = capture ?? (api is null ? new CopyClipboardProcessCapture() : null);
@@ -50,6 +51,7 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
         if (this.timeout <= TimeSpan.Zero || this.timeout > TimeSpan.FromSeconds(10)) throw new ArgumentOutOfRangeException(nameof(timeout));
         this.wait = wait ?? ((milliseconds, token) => !token.WaitHandle.WaitOne(milliseconds));
         this.ignoreOwnSequence = ignoreOwnSequence ?? (_ => false);
+        this.clock = clock ?? (() => Environment.TickCount64);
     }
 
     public async Task<CopySelectionResult> ReadAfterCopyAsync(CopySelectionRequest request, Func<bool> allowed, CancellationToken cancellation)
@@ -119,16 +121,30 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
     {
         if (!current()) return new(CopySelectionStatus.Cancelled);
         if (!SameScope(api.GetMetadata(), request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
-        var result = capture!.ReadAsync(request, timeout, token).GetAwaiter().GetResult();
-        if (!current()) return new(CopySelectionStatus.Cancelled);
-        if (result.Status != CopySelectionStatus.Success) return result with { Selection = null };
-        var copy = result.Selection;
-        var after = api.GetMetadata();
-        if (!SameScope(after, request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
-        if (copy is null || copy.Window != request.Window || copy.ProcessId != request.ProcessId || !ValidText(copy.Text) ||
-            copy.Sequence == 0 || copy.Sequence == request.BeforeSequence || after.Sequence != copy.Sequence ||
-            ignoreOwnSequence(copy.Sequence) || !OwnerAllowed(after)) return new(CopySelectionStatus.NoNewText);
-        return result;
+        for (int attempt = 0; attempt < 2; attempt++)
+        {
+            var result = capture!.ReadAsync(request, timeout, token).GetAwaiter().GetResult();
+            if (!current()) return new(CopySelectionStatus.Cancelled);
+            if (result.Status != CopySelectionStatus.Success) return result with { Selection = null };
+            var copy = result.Selection;
+            var after = api.GetMetadata();
+            if (!SameScope(after, request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
+            if (copy is null || copy.Window != request.Window || copy.ProcessId != request.ProcessId || !ValidText(copy.Text) ||
+                copy.Sequence == 0 || ignoreOwnSequence(copy.Sequence)) return new(CopySelectionStatus.NoNewText);
+            if (after.Sequence == copy.Sequence && !OwnerAllowed(after)) return new(CopySelectionStatus.NoNewText);
+            if (copy.Sequence == request.BeforeSequence)
+            {
+                if (!copy.SourceOwnedBaseline) return new(CopySelectionStatus.NoNewText);
+                // A new copy arrived while the repeat-copy response was in transit.
+                if (after.Sequence != copy.Sequence && attempt == 0) continue;
+                if (after.Sequence != copy.Sequence || !SourceOwnsClipboard(after, request)) return new(CopySelectionStatus.NoNewText);
+            }
+            // Text read under the clipboard lock is an immutable snapshot. Java/OLE
+            // may finish publishing other formats after it is read; that must not
+            // discard the captured text. User activity and foreground still fence it.
+            return result;
+        }
+        return new(CopySelectionStatus.NoNewText);
     }
 
     internal static WindowsCopiedSelectionReader CreateNativeWorker(int parentProcessId, TimeSpan timeout) =>
@@ -137,13 +153,14 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
     private CopySelectionResult ReadOnWorker(CopySelectionRequest request, Func<bool> current, CancellationToken token)
     {
         CopySelectionStatus lastStatus = CopySelectionStatus.NoNewText;
+        long started = clock();
         while (current())
         {
             var before = api.GetMetadata();
             if (!SameScope(before, request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
-            // Delayed rendering may only advance the sequence when GetClipboardData
-            // requests the text. Read on explicit copy intent, then require a fresh
-            // sequence before accepting any text. Unchanged old text is never sent.
+            // Prefer fresh data, including delayed rendering. A deliberate repeat
+            // copy may reuse stable text still owned by its source after a grace
+            // period, giving the application time to publish a new selection.
             if ((!ignoreOwnSequence(before.Sequence) || before.Sequence == request.BeforeSequence) && OwnerAllowed(before))
             {
                 var content = api.TryReadText(MaximumTextLength);
@@ -151,8 +168,11 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
                 {
                     var after = api.GetMetadata();
                     if (!current() || !SameScope(after, request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
-                    if (content.Sequence != 0 && content.Sequence != request.BeforeSequence && after.Sequence == content.Sequence &&
-                        !ignoreOwnSequence(content.Sequence) && OwnerAllowed(after))
+                    bool repeated = content.Sequence == request.BeforeSequence && before.Sequence == content.Sequence &&
+                        after.Sequence == content.Sequence && SourceOwnsClipboard(before, request) && SourceOwnsClipboard(after, request) &&
+                        clock() - started >= 750;
+                    if (content.Sequence != 0 && (content.Sequence != request.BeforeSequence || repeated) &&
+                        !ignoreOwnSequence(content.Sequence) && (after.Sequence != content.Sequence || OwnerAllowed(after)))
                     {
                         if (content.Status == CopySelectionStatus.NoText)
                             lastStatus = CopySelectionStatus.NoText; // Some apps publish formats in stages.
@@ -160,7 +180,8 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
                         {
                             if (content.Status != CopySelectionStatus.Success) return new(content.Status);
                             if (!ValidText(content.Text)) return new(CopySelectionStatus.NoText);
-                            return new(CopySelectionStatus.Success, new(request.Window, request.ProcessId, content.Sequence, content.Text!));
+                            return new(CopySelectionStatus.Success, new(request.Window, request.ProcessId, content.Sequence, content.Text!)
+                                { SourceOwnedBaseline = repeated });
                         }
                     }
                 }
@@ -181,6 +202,9 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
     // Java/OLE/clipboard brokers can own the data in a separate helper window or
     // process. Physical copy + fresh sequence + unchanged foreground is the scope.
     private bool OwnerAllowed(CopyClipboardMetadata value) => value.OwnerProcessId != api.OwnProcessId;
+    private bool SourceOwnsClipboard(CopyClipboardMetadata value, CopySelectionRequest request) => value.OwnerProcessId > 0 &&
+        OwnerAllowed(value) && (value.OwnerProcessId == request.ProcessId || value.OwnerRoot == request.Window ||
+            value.FocusProcessId > 0 && value.OwnerProcessId == value.FocusProcessId);
     private static bool ValidText(string? text)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length > MaximumTextLength) return false;
@@ -188,6 +212,16 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
             if (text[i] == '\0' || char.IsLowSurrogate(text[i])) return false;
             else if (char.IsHighSurrogate(text[i]) && (++i >= text.Length || !char.IsLowSurrogate(text[i]))) return false;
         return true;
+    }
+    internal static CopyClipboardText ReadUnicodeText(nint memory, nuint byteLength, uint sequence, int maximumLength)
+    {
+        if (memory == 0 || byteLength < 2) return new(sequence, CopySelectionStatus.NoText);
+        // HGLOBAL allocation size includes padding and need not be an even number.
+        int length = checked((int)nuint.Min(byteLength / 2, (nuint)(maximumLength + 1)));
+        var buffer = new char[length]; Marshal.Copy(memory, buffer, 0, length);
+        int end = Array.IndexOf(buffer, '\0');
+        if (end < 0) return new(sequence, length > maximumLength ? CopySelectionStatus.TooLong : CopySelectionStatus.NoText);
+        return new(sequence, CopySelectionStatus.Success, new(buffer, 0, end));
     }
     private void Run()
     {
@@ -241,16 +275,12 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
                 nint handle = GetClipboardData(13);
                 if (handle == 0) return null;
                 nuint size = GlobalSize(handle);
-                if (size < 2 || size % 2 != 0) return new(GetClipboardSequenceNumber(), CopySelectionStatus.NoText);
+                if (size < 2) return new(GetClipboardSequenceNumber(), CopySelectionStatus.NoText);
                 nint memory = GlobalLock(handle);
                 if (memory == 0) return null;
                 try
                 {
-                    int length = checked((int)nuint.Min(size / 2, (nuint)(maximumLength + 1)));
-                    var buffer = new char[length]; Marshal.Copy(memory, buffer, 0, length);
-                    int end = Array.IndexOf(buffer, '\0');
-                    if (end < 0) return new(GetClipboardSequenceNumber(), length > maximumLength ? CopySelectionStatus.TooLong : CopySelectionStatus.NoText);
-                    return new(GetClipboardSequenceNumber(), CopySelectionStatus.Success, new(buffer, 0, end));
+                    return ReadUnicodeText(memory, size, GetClipboardSequenceNumber(), maximumLength);
                 }
                 finally { GlobalUnlock(handle); }
             }

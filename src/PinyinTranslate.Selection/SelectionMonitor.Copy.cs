@@ -42,6 +42,7 @@ public sealed partial class SelectionMonitor
         try
         {
             if (copyReader is null || !Current()) return;
+            lock (gate) CopyStatusLocked(work, "正在读取复制文字…");
             captureTask = copyReader.ReadAfterCopyAsync(work.Request, Current, work.Token);
             var result = await captureTask.WaitAsync(WindowsCopiedSelectionReader.DefaultTimeout + TimeSpan.FromSeconds(1), work.Token)
                 .ConfigureAwait(false);
@@ -51,7 +52,8 @@ public sealed partial class SelectionMonitor
                 copyCapture = null;
                 var copied = result.Selection;
                 if (result.Status == CopySelectionStatus.Success && copied is not null && copied.Window == work.Request.Window &&
-                    copied.ProcessId == work.Request.ProcessId && copied.Sequence != 0 && copied.Sequence != work.Request.BeforeSequence &&
+                    copied.ProcessId == work.Request.ProcessId && copied.Sequence != 0 &&
+                    (copied.Sequence != work.Request.BeforeSequence || copied.SourceOwnedBaseline) &&
                     !string.IsNullOrWhiteSpace(copied.Text) && copied.Text.Length <= options.MaximumTextLength)
                 {
                     string runtime = $"copied:{copied.ProcessId}:{copied.Window.ToInt64():X}";
@@ -69,8 +71,8 @@ public sealed partial class SelectionMonitor
                     string message = result.Status switch
                     {
                         CopySelectionStatus.TooLong => "复制内容过长，本次未翻译；正常复制不受影响，可在设置中查看自动翻译上限。",
-                        CopySelectionStatus.Busy or CopySelectionStatus.TimedOut => "本次复制读取超时；读取任务已结束，可再次按 Ctrl+C 重试。",
-                        _ => "未取得本次新复制的文字；请确认已复制文本后再次按 Ctrl+C。"
+                        CopySelectionStatus.Busy or CopySelectionStatus.TimedOut => "复制读取暂未完成，再按 Ctrl+C 可重试。",
+                        _ => "等待复制文字，选中文字后按 Ctrl+C 翻译。"
                     };
                     CopyStatusLocked(work, message);
                 }

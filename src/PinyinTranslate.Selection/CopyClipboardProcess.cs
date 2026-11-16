@@ -8,7 +8,7 @@ namespace PinyinTranslate.Selection;
 
 internal sealed record CopyClipboardWorkerRequest(long Window, int ProcessId, uint BeforeSequence,
     int ParentProcessId, long ParentStartTicks, int TimeoutMilliseconds);
-internal sealed record CopyClipboardWorkerReply(CopySelectionStatus Status, uint Sequence, string? Text);
+internal sealed record CopyClipboardWorkerReply(CopySelectionStatus Status, uint Sequence, string? Text, bool SourceOwnedBaseline = false);
 
 /// <summary>Private anonymous pipes only; copied text never appears in arguments or files.</summary>
 internal static class CopyClipboardProtocol
@@ -66,9 +66,10 @@ internal sealed class CopyClipboardProcessCapture(Func<ICopyClipboardProcess>? s
         await child.WaitForExitAsync(cancellation).ConfigureAwait(false);
         if (child.ExitCode != 0 || !Enum.IsDefined(reply.Status)) return new(CopySelectionStatus.Unavailable);
         if (reply.Status != CopySelectionStatus.Success) return new(reply.Status);
-        if (reply.Sequence == 0 || reply.Sequence == request.BeforeSequence || string.IsNullOrWhiteSpace(reply.Text) ||
+        if (reply.Sequence == 0 || (reply.Sequence == request.BeforeSequence && !reply.SourceOwnedBaseline) || string.IsNullOrWhiteSpace(reply.Text) ||
             reply.Text.Length > WindowsCopiedSelectionReader.MaximumTextLength) return new(CopySelectionStatus.NoNewText);
-        return new(CopySelectionStatus.Success, new(request.Window, request.ProcessId, reply.Sequence, reply.Text));
+        return new(CopySelectionStatus.Success, new(request.Window, request.ProcessId, reply.Sequence, reply.Text)
+            { SourceOwnedBaseline = reply.SourceOwnedBaseline });
     }
 
     internal static ProcessStartInfo CreateStartInfo(string processPath, string assemblyPath, string assemblyName)
@@ -156,7 +157,7 @@ public static class CopyClipboardWorker
             if (await Task.WhenAny(read, parentExit).ConfigureAwait(false) != read) return 3;
             var result = await read.ConfigureAwait(false);
             await CopyClipboardProtocol.WriteAsync(output, new CopyClipboardWorkerReply(result.Status,
-                result.Selection?.Sequence ?? 0, result.Selection?.Text), lifetime.Token).ConfigureAwait(false);
+                result.Selection?.Sequence ?? 0, result.Selection?.Text, result.Selection?.SourceOwnedBaseline ?? false), lifetime.Token).ConfigureAwait(false);
             return 0;
         }
         finally { await lifetime.CancelAsync().ConfigureAwait(false); }
