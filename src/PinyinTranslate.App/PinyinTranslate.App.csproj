@@ -7,8 +7,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\PinyinTranslate.ico</ApplicationIcon>
     <StartupObject>PinyinTranslate.App.Program</StartupObject>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\PinyinTranslate.ico" />
+    <Resource Include="Assets\PinyinTranslate.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="PinyinTranslate.Screenshot.Tests" />

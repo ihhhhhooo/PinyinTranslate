@@ -108,7 +108,8 @@ public sealed class CoreTests
         var handler = new Handler((_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(payload) }));
         var ledger = new BudgetLedger(LedgerPath()); var client = new DeepSeekClient(new HttpClient(handler), ledger, () => "fake");
         await Assert.ThrowsAsync<InvalidDataException>(() => client.TranslateImageAsync(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }, "duplicate"));
-        Assert.Equal("complete", Assert.Single(ledger.Snapshot().Entries).Status);
+        Assert.Equal(2, ledger.Snapshot().Entries.Count);
+        Assert.All(ledger.Snapshot().Entries, entry => Assert.Equal("complete", entry.Status));
     }
     [Fact]
     public async Task ImagePromptRequiresFaithfulNeutralHeadings()

@@ -8,6 +8,28 @@ namespace PinyinTranslate.Selection.Tests;
 public sealed class SelectionMonitorCopyTests
 {
     [Fact]
+    public async Task The_monitor_deadline_cancels_the_underlying_reader_and_keeps_its_token_alive_until_it_finishes()
+    {
+        var reply = new TaskCompletionSource<CopySelectionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notice = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fixture = new Fixture();
+        fixture.Clipboard.ReadOverride = (_, _, token) => { token.Register(() => cancelled.TrySetResult()); return reply.Task; };
+        fixture.Monitor.StatusChanged += message => { if (message.Contains("本次复制", StringComparison.Ordinal)) notice.TrySetResult(); };
+        await fixture.Enable(); fixture.Copy();
+        var request = Assert.Single(fixture.Clipboard.Requests);
+        try
+        {
+            await notice.Task.WaitAsync(TimeSpan.FromSeconds(12));
+            await cancelled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            Assert.True(request.Token.IsCancellationRequested);
+            Assert.Null(Record.Exception(() => _ = request.Token.WaitHandle));
+        }
+        finally { reply.TrySetResult(new(CopySelectionStatus.Cancelled)); }
+        Assert.Empty(fixture.Published);
+    }
+
+    [Fact]
     public async Task An_opaque_editor_can_translate_a_manual_copy_without_Uia_validation()
     {
         using var fixture = new Fixture(); await fixture.Enable();
@@ -27,18 +49,29 @@ public sealed class SelectionMonitorCopyTests
 
     [Theory]
     [InlineData("off")]
-    [InlineData("no-selection")]
     [InlineData("no-native-copy-baseline")]
-    [InlineData("window-changed")]
     [InlineData("injected-copy")]
     public async Task Unrelated_input_does_not_start_a_clipboard_read(string scenario)
     {
         using var fixture = new Fixture(); await fixture.Enable();
-        if (scenario != "no-selection") fixture.Gesture();
+        fixture.Gesture();
         if (scenario == "off") fixture.Monitor.SetEnabled(false);
-        fixture.Copy(window: scenario == "window-changed" ? 200 : 100,
+        fixture.Copy(window: 100,
             baseline: scenario != "no-native-copy-baseline", injected: scenario == "injected-copy");
         Assert.Empty(fixture.Clipboard.Requests); Assert.Empty(fixture.Published);
+    }
+
+    [Theory]
+    [InlineData(100)]
+    [InlineData(200)]
+    public async Task Ctrl_C_in_any_external_window_needs_no_prior_selection_gesture(int window)
+    {
+        using var fixture = new Fixture(); await fixture.Enable();
+        fixture.Copy(window: window);
+        var snapshot = await fixture.Next();
+        Assert.True(snapshot.IsCopiedText);
+        Assert.Equal(window, snapshot.WindowHandle);
+        Assert.Equal("copied from opaque editor", snapshot.Text);
     }
 
     [Fact]
@@ -56,16 +89,44 @@ public sealed class SelectionMonitorCopyTests
     }
 
     [Fact]
-    public async Task Pause_and_resume_require_a_new_gesture_and_reject_old_epoch_activities()
+    public async Task Pause_and_resume_reject_old_copy_key_ups_but_accept_a_fresh_copy_without_reselection()
     {
         using var fixture = new Fixture(); await fixture.Enable();
-        fixture.Gesture();
-        var old = fixture.Activity.Create(SelectionActivityKind.PointerUp, completes: true, button: 1);
+        fixture.Activity.Send(SelectionActivityKind.KeyDown, 0x43, SelectionActivityModifiers.Control, baseline: true);
+        var old = fixture.Activity.Create(SelectionActivityKind.KeyUp, 0x43);
         fixture.Monitor.SetEnabled(false); fixture.Monitor.SetEnabled(true, requireFreshSelection: true);
-        fixture.Activity.Deliver(old); fixture.Copy();
+        fixture.Activity.Deliver(old);
         Assert.Empty(fixture.Clipboard.Requests);
-        fixture.Gesture(); fixture.Copy();
+        fixture.Copy();
         Assert.True((await fixture.Next()).IsCopiedText);
+    }
+
+    [Fact]
+    public async Task A_second_copy_cancels_the_first_capture_and_only_the_new_copy_is_published()
+    {
+        var firstReply = new TaskCompletionSource<CopySelectionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fixture = new Fixture();
+        int calls = 0;
+        fixture.Clipboard.ReadOverride = (request, _, _) => ++calls == 1 ? firstReply.Task :
+            Task.FromResult(new CopySelectionResult(CopySelectionStatus.Success, new(request.Window, request.ProcessId, 12, "second copy")));
+        await fixture.Enable(); fixture.Copy();
+        var first = Assert.Single(fixture.Clipboard.Requests);
+        fixture.Copy();
+        var snapshot = await fixture.Next();
+        Assert.True(first.Token.IsCancellationRequested); Assert.False(first.Current());
+        firstReply.TrySetResult(new(CopySelectionStatus.Success, new(100, 42, 11, "stale first copy")));
+        Assert.Equal("second copy", snapshot.Text); Assert.Single(fixture.Published);
+    }
+
+    [Fact]
+    public async Task A_slow_copy_is_not_cancelled_by_the_old_two_second_monitor_deadline()
+    {
+        var reply = new TaskCompletionSource<CopySelectionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var fixture = new Fixture(); fixture.Clipboard.ReadOverride = (_, _, _) => reply.Task;
+        await fixture.Enable(); fixture.Copy();
+        await Task.Delay(2100);
+        reply.TrySetResult(new(CopySelectionStatus.Success, new(100, 42, 11, "slow renderer text")));
+        Assert.Equal("slow renderer text", (await fixture.Next()).Text);
     }
 
     [Fact]

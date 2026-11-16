@@ -6,4 +6,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup><PackageReference Include="FlaUI.UIA3" Version="5.0.0" /></ItemGroup>
+  <ItemGroup><InternalsVisibleTo Include="PinyinTranslate.Selection.Tests" /></ItemGroup>
 </Project>

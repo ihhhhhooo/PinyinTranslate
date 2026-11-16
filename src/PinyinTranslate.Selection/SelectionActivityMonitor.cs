@@ -324,7 +324,7 @@ public sealed class SelectionActivityMonitor : ISelectionActivityMonitor
                             bool copy = CopySelectionIntentTracker.IsCopyShortcut(value) && !value.IsRepeat;
                             uint sequence = copy ? GetClipboardSequenceNumber() : 0;
                             Activity?.Invoke(value with { Epoch = epoch, HasCapturedEpoch = true, OccurredAtMilliseconds = Environment.TickCount64,
-                                HasCopySequence = copy && sequence != 0, BeforeCopySequence = sequence });
+                                HasCopySequence = copy, BeforeCopySequence = sequence });
                         }
                     }
                 }

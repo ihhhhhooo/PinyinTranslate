@@ -149,6 +149,7 @@ try {
         # Keep that static check. No app, installer or updater is executed here.
         $packArguments = @('vpk', '--skip-updates', 'pack', '--packId', $packId, '--packTitle', 'PinyinTranslate',
             '--packVersion', $properties.Version, '--packDir', $stageDir, '--mainExe', 'PinyinTranslate.App.exe',
+            '--icon', (Join-Path $projectRoot 'src\PinyinTranslate.App\Assets\PinyinTranslate.ico'),
             '--runtime', 'win-x64', '--channel', $channel, '--delta', 'None', '--outputDir', $stageRelease,
             '--releaseNotes', (Join-Path $projectRoot 'RELEASE-NOTES.md'))
         & dotnet @packArguments

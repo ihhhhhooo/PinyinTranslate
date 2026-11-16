@@ -1,7 +1,7 @@
 <Window x:Class="PinyinTranslate.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="PinyinTranslate" Width="1020" Height="700" MinWidth="740" MinHeight="590"
+        Title="PinyinTranslate" Icon="/PinyinTranslate.App;component/Assets/PinyinTranslate.ico" Width="1020" Height="700" MinWidth="740" MinHeight="590"
         WindowStartupLocation="CenterScreen" Background="{DynamicResource Canvas}" Foreground="{DynamicResource Ink}" FontFamily="Microsoft YaHei UI">
     <Window.Resources>
         <Style x:Key="Card" TargetType="Border">
@@ -33,9 +33,7 @@
             <TextBlock DockPanel.Dock="Bottom" Text="本机数据" Foreground="{DynamicResource Muted}" FontSize="11" Margin="8,12,0,0"/>
             <StackPanel>
                 <StackPanel Orientation="Horizontal" Margin="5,0,0,26">
-                    <Border Width="31" Height="31" Background="{DynamicResource HeaderBadge}" CornerRadius="{DynamicResource BadgeCornerRadius}" BorderBrush="{DynamicResource CardBorder}" BorderThickness="{DynamicResource ControlBorderThickness}">
-                        <Path Data="{DynamicResource IconBrand}" Stroke="{DynamicResource HeaderBadgeText}" StrokeThickness="1.7" Width="17" Height="17" Stretch="Uniform"/>
-                    </Border>
+                    <Image Source="/PinyinTranslate.App;component/Assets/PinyinTranslate.png" Width="36" Height="36" Stretch="Uniform" RenderOptions.BitmapScalingMode="HighQuality"/>
                     <StackPanel Margin="8,0,0,0" VerticalAlignment="Center"><TextBlock Text="翻译助手" FontWeight="Bold" FontSize="14"/><TextBlock Text="PinyinTranslate" Foreground="{DynamicResource Muted}" FontSize="9" FontFamily="Segoe UI"/></StackPanel>
                 </StackPanel>
                 <Button x:Name="HomeNav" Style="{StaticResource SideNav}" Click="OpenHome" AutomationProperties.Name="打开翻译主页">
@@ -72,11 +70,8 @@
                     <Path x:Name="HeaderOrnament" Data="{DynamicResource HeroOrnament}" Stroke="{DynamicResource Accent}" StrokeThickness="1.4" Width="76" Height="52" Stretch="Uniform"
                           HorizontalAlignment="Right" Margin="0,0,16,0" Opacity="0.22" IsHitTestVisible="False" Visibility="Collapsed"/>
                     <StackPanel x:Name="BrandIdentity" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="48" Height="48" Background="{DynamicResource HeaderBadge}" BorderBrush="{DynamicResource CardBorder}"
-                                BorderThickness="{DynamicResource ControlBorderThickness}" CornerRadius="{DynamicResource BadgeCornerRadius}" VerticalAlignment="Center">
-                            <Path Data="{DynamicResource IconBrand}" Stroke="{DynamicResource HeaderBadgeText}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" Width="24" Height="24" Stretch="Uniform"/>
-                        </Border>
-                        <StackPanel Margin="14,0,12,0" VerticalAlignment="Center">
+                        <Image Source="/PinyinTranslate.App;component/Assets/PinyinTranslate.png" Width="56" Height="56" Stretch="Uniform" VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <StackPanel Margin="6,0,12,0" VerticalAlignment="Center">
                             <TextBlock x:Name="BrandTitle" Text="PinyinTranslate" FontFamily="Segoe UI" FontSize="23" FontWeight="Bold"/>
                             <TextBlock Text="输入、划词和截图，轻松翻译" Foreground="{DynamicResource Muted}" FontSize="12" Margin="0,3,0,0"/>
                         </StackPanel>
@@ -107,7 +102,7 @@
                                 <Border Style="{StaticResource FeatureBadge}" Background="{DynamicResource BadgeSelection}"><Path Data="{DynamicResource IconSelection}" Stroke="{DynamicResource BadgeInk}" StrokeThickness="1.7" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Width="19" Height="19" Stretch="Uniform"/></Border>
                                 <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,12,0">
                                     <TextBlock Text="划词翻译" FontSize="14" FontWeight="SemiBold"/>
-                                    <TextBlock Text="自动双向翻译 · 读不到时选中后 Ctrl+C" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Text="自动双向翻译 · 也可 Ctrl+C 复制翻译" Foreground="{DynamicResource Muted}" FontSize="11" Margin="0,2,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <CheckBox x:Name="SelectionCheck" Grid.Column="2" Style="{StaticResource ModeSwitch}" VerticalAlignment="Center" AutomationProperties.Name="开启划词双向翻译" ToolTip="开启后在本行两种语言之间互译；选中后手动 Ctrl+C 也可翻译本次新复制的文字，终端也可用 Ctrl+Shift+C。关闭后两种方式都停止。" Checked="SelectionChanged" Unchecked="SelectionChanged"/>
                             </Grid>

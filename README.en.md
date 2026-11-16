@@ -13,7 +13,7 @@ For **Windows 11 x64**. Bring your own **DeepSeek API key**; the .NET runtime is
 | Feature | Default shortcut | How it works |
 | --- | --- | --- |
 | Input translation | `Ctrl+Alt+T` | Translate the first Microsoft Pinyin candidate and copy the result. Wait for “已复制” (Copied), press `Esc` to cancel Pinyin, then `Ctrl+V` to paste. |
-| Two-way text translation | `Ctrl+Alt+D` | Select text to translate between your chosen languages. Successful results are copied automatically by default; press `Ctrl+V` to paste. If automatic selection reading fails, select and press `Ctrl+C`; terminals also support `Ctrl+Shift+C`. |
+| Two-way text translation | `Ctrl+Alt+D` | Select text to translate between your chosen languages. Successful results are copied automatically by default; press `Ctrl+V` to paste. You can also copy text with `Ctrl+C` (`Ctrl+Shift+C` in terminals), even when the app does not expose a readable selection. |
 | Screenshot translation | `Ctrl+Alt+S` | Capture a region and compare the original image with the original text and translation, paragraph by paragraph. |
 
 Languages: Chinese (Simplified/Traditional), English, Japanese, Korean, French, German, Spanish, Portuguese, Russian, and Vietnamese. Set separate targets for input and screenshots, or choose any two languages for text translation.

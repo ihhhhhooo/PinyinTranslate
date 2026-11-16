@@ -13,7 +13,8 @@ public interface ISelectionClipboardReader : IDisposable
 }
 
 /// <summary>
-/// Fresh external selection gesture + physical Ctrl+C/Ctrl+Shift+C only. Wait
+/// A physical Ctrl+C/Ctrl+Shift+C is an explicit copy intent in any external app;
+/// it does not require a readable selection or a preceding selection gesture. Wait
 /// for C and its modifiers to be released so their key-ups do not cancel the
 /// resulting translation. The pre-key sequence is captured by the native hook,
 /// before the target receives the copy command; a later async callback is too late.
@@ -21,20 +22,19 @@ public interface ISelectionClipboardReader : IDisposable
 public sealed class CopySelectionIntentTracker(Func<long>? clock = null)
 {
     private readonly Func<long> now = clock ?? (() => Environment.TickCount64);
-    private nint gestureWindow;
-    private long gestureAt;
+    private long copyAt;
     private CopySelectionRequest? pending;
     private bool cReleased;
     public bool HasPendingCopy
     {
         get
         {
-            if (gestureWindow != 0 && now() - gestureAt is < 0 or > 15000) Reset();
+            if (pending is not null && now() - copyAt is < 0 or > 15000) Reset();
             return pending is not null;
         }
     }
 
-    public void Reset() { gestureWindow = 0; pending = null; gestureAt = 0; cReleased = false; }
+    public void Reset() { pending = null; copyAt = 0; cReleased = false; }
     public static bool IsCopyShortcut(SelectionActivity value) => value.Kind == SelectionActivityKind.KeyDown && value.VirtualKey == 0x43 &&
         (value.Modifiers & SelectionActivityModifiers.Control) != 0 &&
         (value.Modifiers & (SelectionActivityModifiers.Alt | SelectionActivityModifiers.Windows)) == 0 && !value.IsInjected;
@@ -43,9 +43,10 @@ public sealed class CopySelectionIntentTracker(Func<long>? clock = null)
     public CopySelectionRequest? Observe(SelectionActivity value)
     {
         long time = now();
-        if (value.IsInjected || value.TargetWindow == 0 || value.TargetProcessId <= 0 ||
-            (gestureWindow != 0 && (value.TargetWindow != gestureWindow || time - gestureAt is < 0 or > 15000)))
+        if (value.IsInjected || value.TargetWindow == 0 || value.TargetProcessId <= 0)
         { Reset(); return null; }
+        if (pending is not null && (pending.Window != value.TargetWindow || pending.ProcessId != value.TargetProcessId ||
+            time - copyAt is < 0 or > 15000)) Reset();
         if (pending is not null)
         {
             if (value.Kind == SelectionActivityKind.KeyUp && (value.VirtualKey == 0x43 || IsModifier(value.VirtualKey)))
@@ -58,16 +59,10 @@ public sealed class CopySelectionIntentTracker(Func<long>? clock = null)
             if (IsCopyShortcut(value) && value.IsRepeat) return null;
             Reset();
         }
-        if (value.Kind == SelectionActivityKind.PointerUp && value.MouseButton == 1 && value.CompletesSelectionGesture ||
-            value.Kind == SelectionActivityKind.KeyUp && value.CompletesSelectionGesture)
+        long occurred = value.OccurredAtMilliseconds > 0 ? value.OccurredAtMilliseconds : time;
+        if (IsCopyShortcut(value) && !value.IsRepeat && value.HasCopySequence && time - occurred is >= 0 and <= 15000)
         {
-            gestureWindow = value.TargetWindow;
-            gestureAt = value.OccurredAtMilliseconds > 0 ? value.OccurredAtMilliseconds : time;
-            return null;
-        }
-        if (IsCopyShortcut(value) && !value.IsRepeat && gestureWindow == value.TargetWindow && value.HasCopySequence && value.BeforeCopySequence != 0)
-        {
-            pending = new(value.TargetWindow, value.TargetProcessId, value.BeforeCopySequence); cReleased = false;
+            pending = new(value.TargetWindow, value.TargetProcessId, value.BeforeCopySequence); copyAt = occurred; cReleased = false;
         }
         else if (value.Kind is SelectionActivityKind.PointerDown or SelectionActivityKind.PointerWheel ||
             value.Kind == SelectionActivityKind.KeyDown && !IsModifier(value.VirtualKey)) Reset();

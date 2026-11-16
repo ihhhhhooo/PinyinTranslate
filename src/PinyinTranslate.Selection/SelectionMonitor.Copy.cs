@@ -38,11 +38,13 @@ public sealed partial class SelectionMonitor
     private async Task ReadCopiedSelectionAsync(CopyWork work)
     {
         bool Current() { lock (gate) return CopyWorkCurrentLocked(work); }
+        Task<CopySelectionResult>? captureTask = null;
         try
         {
             if (copyReader is null || !Current()) return;
-            var result = await copyReader.ReadAfterCopyAsync(work.Request, Current, work.Token)
-                .WaitAsync(TimeSpan.FromSeconds(2), work.Token).ConfigureAwait(false);
+            captureTask = copyReader.ReadAfterCopyAsync(work.Request, Current, work.Token);
+            var result = await captureTask.WaitAsync(WindowsCopiedSelectionReader.DefaultTimeout + TimeSpan.FromSeconds(1), work.Token)
+                .ConfigureAwait(false);
             lock (gate)
             {
                 if (!CopyWorkCurrentLocked(work)) return;
@@ -67,8 +69,8 @@ public sealed partial class SelectionMonitor
                     string message = result.Status switch
                     {
                         CopySelectionStatus.TooLong => "复制内容过长，本次未翻译；正常复制不受影响，可在设置中查看自动翻译上限。",
-                        CopySelectionStatus.Busy or CopySelectionStatus.TimedOut => "本次复制读取超时或忙碌；请重新选择并复制，或使用截图翻译。",
-                        _ => "未取得本次新复制的文字，不会翻译旧剪贴板。请重新选择后按 Ctrl+C，或使用截图翻译。"
+                        CopySelectionStatus.Busy or CopySelectionStatus.TimedOut => "本次复制读取超时；读取任务已结束，可再次按 Ctrl+C 重试。",
+                        _ => "未取得本次新复制的文字；请确认已复制文本后再次按 Ctrl+C。"
                     };
                     CopyStatusLocked(work, message);
                 }
@@ -81,15 +83,22 @@ public sealed partial class SelectionMonitor
             lock (gate)
             {
                 if (CopyWorkCurrentLocked(work))
-                { copyCapture = null; CopyStatusLocked(work, "本次复制读取未完成，请重新选择并复制，或使用截图翻译。"); }
+                { copyCapture = null; CopyStatusLocked(work, "本次复制读取未完成，可再次按 Ctrl+C 重试。"); }
             }
         }
         finally
         {
             lock (gate) if (ReferenceEquals(copyCapture, work.Cancellation)) copyCapture = null;
-            work.Cancellation.Dispose();
+            _ = FinishCopyCaptureAsync(work.Cancellation, captureTask);
             ScheduleRead();
         }
+    }
+    private static async Task FinishCopyCaptureAsync(CancellationTokenSource cancellation, Task? captureTask)
+    {
+        try { await cancellation.CancelAsync().ConfigureAwait(false); } catch { }
+        if (captureTask is not null)
+            try { await captureTask.ConfigureAwait(false); } catch { }
+        cancellation.Dispose();
     }
     private void CopyStatusLocked(CopyWork work, string message) => Notice(() =>
     {

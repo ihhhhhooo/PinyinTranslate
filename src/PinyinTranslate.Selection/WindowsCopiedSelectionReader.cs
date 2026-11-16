@@ -14,28 +14,39 @@ public interface ICopyClipboardReadApi
     CopyClipboardText? TryReadText(int maximumLength);
 }
 
+public interface ICopyClipboardCapture
+{
+    Task<CopySelectionResult> ReadAsync(CopySelectionRequest request, TimeSpan timeout, CancellationToken cancellation);
+}
+
 /// <summary>
-/// Inert until an explicit copy request. One worker reads CF_UNICODETEXT only;
-/// no clipboard writer, listener, injected keys or UIA calls. A blocked delayed
-/// renderer cannot block UIA or enqueue unlimited work after a caller timeout.
+/// Inert until an explicit copy request. Production reads run in a disposable
+/// child process so a blocked native delayed renderer cannot strand later copies.
+/// Injected APIs exercise the same reading algorithm without native services.
 /// </summary>
 public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
 {
     public const int MaximumTextLength = 4000;
+    public static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(5);
     private readonly ICopyClipboardReadApi api;
+    private readonly ICopyClipboardCapture? capture;
     private readonly TimeSpan timeout;
     private readonly Func<int, CancellationToken, bool> wait;
     private readonly Func<uint, bool> ignoreOwnSequence;
     private readonly BlockingCollection<Action> queue = new(1);
+    private readonly SemaphoreSlim access = new(1, 1);
+    private readonly CancellationTokenSource lifetime = new();
     private readonly object lifecycle = new();
     private Thread? worker;
-    private int disposed, busy;
+    private int disposed;
 
     public WindowsCopiedSelectionReader(ICopyClipboardReadApi? api = null, TimeSpan? timeout = null,
-        Func<int, CancellationToken, bool>? wait = null, Func<uint, bool>? ignoreOwnSequence = null)
+        Func<int, CancellationToken, bool>? wait = null, Func<uint, bool>? ignoreOwnSequence = null,
+        ICopyClipboardCapture? capture = null)
     {
         this.api = api ?? new NativeApi();
-        this.timeout = timeout ?? TimeSpan.FromMilliseconds(1200);
+        this.capture = capture ?? (api is null ? new CopyClipboardProcessCapture() : null);
+        this.timeout = timeout ?? DefaultTimeout;
         if (this.timeout <= TimeSpan.Zero || this.timeout > TimeSpan.FromSeconds(10)) throw new ArgumentOutOfRangeException(nameof(timeout));
         this.wait = wait ?? ((milliseconds, token) => !token.WaitHandle.WaitOne(milliseconds));
         this.ignoreOwnSequence = ignoreOwnSequence ?? (_ => false);
@@ -43,44 +54,97 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
 
     public async Task<CopySelectionResult> ReadAfterCopyAsync(CopySelectionRequest request, Func<bool> allowed, CancellationToken cancellation)
     {
-        if (request.Window == 0 || request.ProcessId <= 0 || request.ProcessId == api.OwnProcessId || request.BeforeSequence == 0)
+        if (request.Window == 0 || request.ProcessId <= 0 || request.ProcessId == api.OwnProcessId)
             return new(CopySelectionStatus.ScopeChanged);
         if (cancellation.IsCancellationRequested || Volatile.Read(ref disposed) != 0) return new(CopySelectionStatus.Cancelled);
-        if (Interlocked.CompareExchange(ref busy, 1, 0) != 0) return new(CopySelectionStatus.Busy);
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
         deadline.CancelAfter(timeout);
         CancellationToken token = deadline.Token;
         var completion = new TaskCompletionSource<CopySelectionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         bool Current() => !token.IsCancellationRequested && Volatile.Read(ref disposed) == 0 && allowed();
-        lock (lifecycle)
+        bool queued = false, ownsAccess = false;
+        try
         {
-            if (disposed != 0) { Interlocked.Exchange(ref busy, 0); return new(CopySelectionStatus.Cancelled); }
-            queue.Add(() =>
+            // Wait for the previous helper's actual cleanup, including after its
+            // caller timeout, before allowing another clipboard reader to start.
+            await access.WaitAsync(token).ConfigureAwait(false);
+            ownsAccess = true;
+            lock (lifecycle)
             {
-                CopySelectionResult result;
-                try { result = ReadOnWorker(request, Current, token); }
-                catch { result = new(CopySelectionStatus.Unavailable); }
-                finally { Interlocked.Exchange(ref busy, 0); }
-                completion.TrySetResult(result);
-            });
-            if (worker is null)
-            {
-                worker = new Thread(Run) { IsBackground = true, Name = "Copied selection reader" };
-                worker.SetApartmentState(ApartmentState.MTA);
-                worker.Start();
+                if (disposed != 0) return new(CopySelectionStatus.Cancelled);
+                queue.Add(() =>
+                {
+                    CopySelectionResult result;
+                    try
+                    {
+                        result = capture is null ? ReadOnWorker(request, Current, token) :
+                            CaptureOnWorker(request, Current, token);
+                    }
+                    catch (OperationCanceledException) { result = CancelledResult(); }
+                    catch { result = new(CopySelectionStatus.Unavailable); }
+                    finally { access.Release(); }
+                    completion.TrySetResult(result);
+                });
+                queued = true; ownsAccess = false;
+                if (worker is null)
+                {
+                    worker = new Thread(Run) { IsBackground = true, Name = "Copied selection reader" };
+                    worker.SetApartmentState(ApartmentState.MTA);
+                    worker.Start();
+                }
             }
+            var result = await completion.Task.WaitAsync(token).ConfigureAwait(false);
+            return token.IsCancellationRequested ? CancelledResult() : result;
         }
-        try { return await completion.Task.WaitAsync(token).ConfigureAwait(false); }
-        catch (OperationCanceledException) { return new(cancellation.IsCancellationRequested ? CopySelectionStatus.Cancelled : CopySelectionStatus.TimedOut); }
+        catch (OperationCanceledException) { return CancelledResult(); }
+        finally
+        {
+            if (ownsAccess) access.Release();
+            if (queued) _ = DisposeAfterReadAsync(completion.Task, deadline);
+            else deadline.Dispose();
+        }
+
+        CopySelectionResult CancelledResult() => new(cancellation.IsCancellationRequested || Volatile.Read(ref disposed) != 0
+            ? CopySelectionStatus.Cancelled : CopySelectionStatus.TimedOut);
     }
+
+    private static async Task DisposeAfterReadAsync(Task completion, CancellationTokenSource deadline)
+    {
+        try { await completion.ConfigureAwait(false); }
+        catch { }
+        finally { deadline.Dispose(); }
+    }
+
+    private CopySelectionResult CaptureOnWorker(CopySelectionRequest request, Func<bool> current, CancellationToken token)
+    {
+        if (!current()) return new(CopySelectionStatus.Cancelled);
+        if (!SameScope(api.GetMetadata(), request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
+        var result = capture!.ReadAsync(request, timeout, token).GetAwaiter().GetResult();
+        if (!current()) return new(CopySelectionStatus.Cancelled);
+        if (result.Status != CopySelectionStatus.Success) return result with { Selection = null };
+        var copy = result.Selection;
+        var after = api.GetMetadata();
+        if (!SameScope(after, request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
+        if (copy is null || copy.Window != request.Window || copy.ProcessId != request.ProcessId || !ValidText(copy.Text) ||
+            copy.Sequence == 0 || copy.Sequence == request.BeforeSequence || after.Sequence != copy.Sequence ||
+            ignoreOwnSequence(copy.Sequence) || !OwnerAllowed(after)) return new(CopySelectionStatus.NoNewText);
+        return result;
+    }
+
+    internal static WindowsCopiedSelectionReader CreateNativeWorker(int parentProcessId, TimeSpan timeout) =>
+        new(new NativeApi(parentProcessId), timeout);
 
     private CopySelectionResult ReadOnWorker(CopySelectionRequest request, Func<bool> current, CancellationToken token)
     {
-        for (int attempts = 0; attempts < 120 && current(); attempts++)
+        CopySelectionStatus lastStatus = CopySelectionStatus.NoNewText;
+        while (current())
         {
             var before = api.GetMetadata();
             if (!SameScope(before, request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
-            if (before.Sequence != 0 && before.Sequence != request.BeforeSequence && !ignoreOwnSequence(before.Sequence) && OwnerAllowed(before, request))
+            // Delayed rendering may only advance the sequence when GetClipboardData
+            // requests the text. Read on explicit copy intent, then require a fresh
+            // sequence before accepting any text. Unchanged old text is never sent.
+            if ((!ignoreOwnSequence(before.Sequence) || before.Sequence == request.BeforeSequence) && OwnerAllowed(before))
             {
                 var content = api.TryReadText(MaximumTextLength);
                 if (content is not null)
@@ -88,17 +152,22 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
                     var after = api.GetMetadata();
                     if (!current() || !SameScope(after, request.Window, request.ProcessId)) return new(CopySelectionStatus.ScopeChanged);
                     if (content.Sequence != 0 && content.Sequence != request.BeforeSequence && after.Sequence == content.Sequence &&
-                        !ignoreOwnSequence(content.Sequence) && OwnerAllowed(after, request))
+                        !ignoreOwnSequence(content.Sequence) && OwnerAllowed(after))
                     {
-                        if (content.Status != CopySelectionStatus.Success) return new(content.Status);
-                        if (!ValidText(content.Text)) return new(CopySelectionStatus.NoText);
-                        return new(CopySelectionStatus.Success, new(request.Window, request.ProcessId, content.Sequence, content.Text!));
+                        if (content.Status == CopySelectionStatus.NoText)
+                            lastStatus = CopySelectionStatus.NoText; // Some apps publish formats in stages.
+                        else
+                        {
+                            if (content.Status != CopySelectionStatus.Success) return new(content.Status);
+                            if (!ValidText(content.Text)) return new(CopySelectionStatus.NoText);
+                            return new(CopySelectionStatus.Success, new(request.Window, request.ProcessId, content.Sequence, content.Text!));
+                        }
                     }
                 }
             }
             if (!wait(10, token)) break;
         }
-        return new(token.IsCancellationRequested ? CopySelectionStatus.Cancelled : CopySelectionStatus.NoNewText);
+        return new(token.IsCancellationRequested ? CopySelectionStatus.Cancelled : lastStatus);
     }
 
     public bool IsCurrent(CopiedSelection selection)
@@ -109,9 +178,9 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
     }
     private bool SameScope(CopyClipboardMetadata value, nint window, int process) => window != 0 && process > 0 && process != api.OwnProcessId &&
         value.ForegroundWindow == window && value.ForegroundProcessId == process && !value.ProtectedFocus;
-    private bool OwnerAllowed(CopyClipboardMetadata value, CopySelectionRequest request) => value.OwnerProcessId != api.OwnProcessId &&
-        (value.OwnerProcessId == 0 || value.OwnerProcessId == request.ProcessId || value.OwnerRoot == request.Window ||
-         value.FocusProcessId > 0 && value.OwnerProcessId == value.FocusProcessId);
+    // Java/OLE/clipboard brokers can own the data in a separate helper window or
+    // process. Physical copy + fresh sequence + unchanged foreground is the scope.
+    private bool OwnerAllowed(CopyClipboardMetadata value) => value.OwnerProcessId != api.OwnProcessId;
     private static bool ValidText(string? text)
     {
         if (string.IsNullOrWhiteSpace(text) || text.Length > MaximumTextLength) return false;
@@ -123,22 +192,23 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
     private void Run()
     {
         try { foreach (var action in queue.GetConsumingEnumerable()) action(); }
-        finally { Interlocked.Exchange(ref busy, 0); queue.Dispose(); }
+        finally { queue.Dispose(); }
     }
     public void Dispose()
     {
         lock (lifecycle)
         {
             if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+            lifetime.Cancel();
             queue.CompleteAdding();
             if (worker is null) { queue.Dispose(); return; }
         }
         if (Thread.CurrentThread != worker) worker.Join(TimeSpan.FromMilliseconds(200));
     }
 
-    private sealed class NativeApi : ICopyClipboardReadApi
+    private sealed class NativeApi(int ownProcessId = 0) : ICopyClipboardReadApi
     {
-        public int OwnProcessId => Environment.ProcessId;
+        public int OwnProcessId => ownProcessId > 0 ? ownProcessId : Environment.ProcessId;
         public CopyClipboardMetadata GetMetadata()
         {
             nint foreground = GetForegroundWindow();
@@ -161,10 +231,9 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
         }
         public CopyClipboardText? TryReadText(int maximumLength)
         {
-            // Avoid opening the global clipboard when its known owner is hung.
-            // WM_NULL is a bounded responsiveness probe, never an input command.
-            nint owner = GetClipboardOwner();
-            if (owner != 0 && SendMessageTimeout(owner, 0, 0, 0, 0x22, 80, out _) == 0) return null;
+            // No WM_NULL preflight: a Java/OLE owner need not answer arbitrary
+            // messages promptly to provide clipboard data. Native rendering is
+            // isolated in the child process and the caller can terminate it.
             if (!OpenClipboard(0)) return null;
             try
             {
@@ -203,8 +272,6 @@ public sealed class WindowsCopiedSelectionReader : ISelectionClipboardReader
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool CloseClipboard();
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool IsClipboardFormatAvailable(uint format);
     [DllImport("user32.dll")] private static extern nint GetClipboardData(uint format);
-    [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW")] private static extern nint SendMessageTimeout(nint window, uint message, nuint wParam,
-        nint lParam, uint flags, uint timeout, out nuint result);
     [DllImport("kernel32.dll")] private static extern nuint GlobalSize(nint handle);
     [DllImport("kernel32.dll")] private static extern nint GlobalLock(nint handle);
     [DllImport("kernel32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GlobalUnlock(nint handle);

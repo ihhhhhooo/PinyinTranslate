@@ -16,6 +16,7 @@ $suites = @(
         Project = 'PinyinTranslate.Core.Tests.csproj'
         Sources = @(
             'ApiUsageLedgerTests.cs'
+            'ApiResponseValidationTests.cs'
             'BudgetLedgerIntegrityTests.cs'
             'CandidateBridgeProtocolTests.cs'
             'CandidateHostDiscoveryCacheTests.cs'
@@ -27,6 +28,7 @@ $suites = @(
             'GenericTextInsertionTests.cs'
             'FlashPricingTests.cs'
             'ImeTabInputProtocolTests.cs'
+            'ImageTranslationTests.cs'
             'InputSessionTests.cs'
             'MultilingualTranslationTests.cs'
             'PreviewFocusReaderTests.cs'
@@ -41,7 +43,7 @@ $suites = @(
     [pscustomobject]@{
         Directory = 'tests\PinyinTranslate.Selection.Tests'
         Project = 'PinyinTranslate.Selection.Tests.csproj'
-        Sources = @('CopiedSelectionReaderTests.cs', 'JavaSelectionReaderTests.cs', 'NativeSelectionReaderTests.cs', 'SelectionActivityMonitorTests.cs', 'SelectionGenerationTests.cs', 'SelectionGuardTests.cs', 'SelectionMonitorCopyTests.cs', 'SelectionMonitorTests.cs', 'UiaSelectionReaderTests.cs')
+        Sources = @('CopyClipboardProcessTests.cs', 'CopiedSelectionReaderTests.cs', 'JavaSelectionReaderTests.cs', 'NativeSelectionReaderTests.cs', 'SelectionActivityMonitorTests.cs', 'SelectionGenerationTests.cs', 'SelectionGuardTests.cs', 'SelectionMonitorCopyTests.cs', 'SelectionMonitorTests.cs', 'UiaSelectionReaderTests.cs')
         ExcludedTest = $null
     }
     [pscustomobject]@{

@@ -194,6 +194,35 @@ public sealed class LanguageSettingsTests
         Assert.Equal("ja", fixture.Services.Settings.ScreenshotTargetLanguage);
     }
 
+    [Fact]
+    public async Task A_format_retry_keeps_the_original_screenshot_target_and_records_one_successful_result()
+    {
+        using var fixture = new Fixture();
+        var statistics = new StatisticsStore(Path.Combine(fixture.DirectoryPath, "screenshot-statistics.json"));
+        fixture.Set("_statistics", statistics);
+        fixture.SetSettings(fixture.Services.Settings with { ScreenshotTargetLanguage = "zh-Hant" });
+        fixture.Response = (_, _) =>
+        {
+            if (fixture.Bodies.Count == 1)
+            {
+                fixture.SetSettings(fixture.Services.Settings with { ScreenshotTargetLanguage = "ja" });
+                return Task.FromResult("{\"message\":\"missing groups\"}");
+            }
+            return Task.FromResult("{\"groups\":[{\"source\":\"software\",\"translation\":\"軟體\"}]}");
+        };
+        var result = await fixture.Services.TranslateScreenshotAsync([137, 80, 78, 71, 13, 10, 26, 10], CancellationToken.None);
+        Assert.Equal("zh-Hant", result.TargetLanguage); Assert.Equal("軟體", Assert.Single(result.Items).Translation);
+        Assert.True(result.Items[0].Uncertain); Assert.False(result.IsComplete);
+        Assert.Equal(2, fixture.Bodies.Count);
+        Assert.All(fixture.Bodies, body =>
+        {
+            using var document = JsonDocument.Parse(body);
+            Assert.Contains("(zh-Hant)", document.RootElement.GetProperty("messages")[0].GetProperty("content").GetString());
+        });
+        Assert.Equal(1, statistics.Snapshot().Data.ScreenshotResults);
+        Assert.Equal(0, statistics.Snapshot().Data.ScreenshotFailures);
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly TranslationCache cache = new();
